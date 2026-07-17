@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# YouTube channel to process.
+# Accepts an @handle ("@anthropic-ai"), a channel ID ("UC...") or a full URL.
+# ---------------------------------------------------------------------------
+channel: "@IvanOnTech"
+
+# How many recent videos (videos + lives, no Shorts) to list.
+max_videos_fetch: 25
+
+# Preferred transcript languages, in order. Falls back to any available
+# transcript (including auto-generated) if none of these exist.
+transcript_languages: [en]
+
+# ---------------------------------------------------------------------------
+# Claude settings
+# ---------------------------------------------------------------------------
+model: claude-opus-4-8
+max_output_tokens: 8192
+
+# Used only for the cost estimate shown before you confirm each API call.
+# The actual output token count (and cost) is recorded after the call.
+estimated_output_tokens: 2000
+
+# Prices in USD per 1 million tokens. Used for cost estimation — keep in sync
+# with https://platform.claude.com/docs/en/pricing if they change.
+pricing:
+  claude-opus-4-8:  { input: 5.00, output: 25.00 }
+  claude-sonnet-5:  { input: 3.00, output: 15.00 }
+  claude-haiku-4-5: { input: 1.00, output: 5.00 }
+
+# ---------------------------------------------------------------------------
+# Prompts. The active prompt is sent as the system prompt; the transcript is
+# sent as the user message. Select with `active_prompt` or `--prompt NAME`.
+# ---------------------------------------------------------------------------
+active_prompt: ivan-summary
+
+prompts:
+  ivan-summary: |
+    You are given the full transcript of video from the Ivan On Tech YouTube
+    channel. Summarize the video following the structure below:
+
+    - One short sentence describing his position on the Bitcoin market (bull or
+      bear + nuance if expressed).
+    - Two or three sentence on the stock market and financial news. - Mention
+      any altcoins that Ivan deems interesting for the upcoming bull market. He
+      usually mentioned them as part of the "holy trinity et al." For each altcoin
+      describe his stance.
+    - One sentence reserved for the most important points
+      not mentioned above.
+
+    Base the summary only on the transcript. Do not invent details. Do not
+    mention that you are working from a transcript.
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+database: data/videos.db
+html_output: output/summaries.html

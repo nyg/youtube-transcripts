@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Virtual environments
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Generated data
+data/
+output/
