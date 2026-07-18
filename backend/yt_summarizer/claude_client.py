@@ -33,10 +33,6 @@ class SummaryResult:
     stop_reason: str | None
 
 
-def format_cost(cost: float | None) -> str:
-    return f"${cost:.4f}" if cost is not None else "n/a (model not in pricing table)"
-
-
 @contextmanager
 def _api_errors(model: str):
     try:
@@ -78,10 +74,17 @@ class ClaudeSummarizer:
         max_output_tokens: int,
         pricing: dict[str, ModelPricing],
     ) -> None:
-        self._client = anthropic.Anthropic()
+        # Created lazily so missing credentials surface as a SummarizerError on
+        # first use (via _api_errors) instead of failing at construction time.
+        self._client: anthropic.Anthropic | None = None
         self._model = model
         self._max_output_tokens = max_output_tokens
         self._pricing = pricing
+
+    def _get_client(self) -> anthropic.Anthropic:
+        if self._client is None:
+            self._client = anthropic.Anthropic()
+        return self._client
 
     def _cost(self, tokens_input: int, tokens_output: int) -> float | None:
         price = self._pricing.get(self._model)
@@ -95,7 +98,7 @@ class ClaudeSummarizer:
     def estimate(self, prompt: str, transcript: str, estimated_output_tokens: int) -> CostEstimate:
         """Count input tokens server-side (free, exact) and estimate the cost."""
         with _api_errors(self._model):
-            count = self._client.messages.count_tokens(
+            count = self._get_client().messages.count_tokens(
                 model=self._model,
                 system=prompt,
                 messages=_messages(transcript),
@@ -109,7 +112,7 @@ class ClaudeSummarizer:
     def summarize(self, prompt: str, transcript: str) -> SummaryResult:
         """Send the transcript to Claude and return the response with actual usage."""
         with _api_errors(self._model):
-            with self._client.messages.stream(
+            with self._get_client().messages.stream(
                 model=self._model,
                 max_tokens=self._max_output_tokens,
                 system=prompt,
