@@ -13,3 +13,7 @@ __pycache__/
 # Generated data
 data/
 output/
+
+# Frontend
+node_modules/
+dist/

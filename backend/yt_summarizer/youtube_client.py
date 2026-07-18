@@ -33,7 +33,7 @@ def _normalize_channel_url(channel: str) -> str:
     """Accept an @handle, a UC... channel ID, or a full URL."""
     channel = channel.strip().rstrip("/")
     if not channel:
-        raise ValueError("No channel configured — set 'channel' in config.yaml or pass --channel")
+        raise ValueError("No channel provided — expected an @handle, a UC... channel ID, or a URL")
     if channel.startswith(("http://", "https://")):
         base = channel
     elif channel.startswith("@"):
@@ -88,6 +88,30 @@ def _list_tab(tab_url: str, max_videos: int) -> list[Video]:
             )
         )
     return videos
+
+
+def probe_channel(channel: str) -> str | None:
+    """Cheaply verify that a channel exists and return its display name.
+
+    Returns None when the channel cannot be resolved. Raises ValueError for
+    syntactically invalid input (empty string).
+    """
+    base = _normalize_channel_url(channel)
+    opts: Any = {
+        "extract_flat": "in_playlist",
+        "playlist_items": "1:1",
+        "quiet": True,
+        "no_warnings": True,
+    }
+    for tab in _TABS:
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"{base}/{tab}", download=False) or {}
+        except DownloadError as exc:
+            log.debug("Probe failed for %s/%s: %s", base, tab, exc)
+            continue
+        return info.get("channel") or info.get("uploader") or channel
+    return None
 
 
 def list_recent_videos(channel: str, max_videos: int) -> list[Video]:

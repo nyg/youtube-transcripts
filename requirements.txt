@@ -1,8 +1,0 @@
-yt-dlp
-youtube-transcript-api
-anthropic
-python-dotenv
-PyYAML
-rich
-jinja2
-markdown-it-py

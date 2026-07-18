@@ -33,7 +33,6 @@ class Config:
     active_prompt: str
     prompts: dict[str, str]
     database: Path
-    html_output: Path
 
     @property
     def prompt_text(self) -> str:
@@ -85,5 +84,4 @@ def load_config(path: Path) -> Config:
         active_prompt=active_prompt,
         prompts=prompts,
         database=Path(raw.get("database", "data/videos.db")),
-        html_output=Path(raw.get("html_output", "output/summaries.html")),
     )

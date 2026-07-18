@@ -1,0 +1,74 @@
+"""Channel management and per-channel video listing."""
+
+from __future__ import annotations
+
+import sqlite3
+
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from yt_summarizer import youtube_client
+
+from ..schemas import ChannelIn, ChannelOut, VideoListOut, VideoOut
+
+router = APIRouter(prefix="/api/channels")
+
+
+def _to_channel(row: sqlite3.Row) -> ChannelOut:
+    return ChannelOut(
+        id=row["id"], input=row["input"], label=row["label"], created_at=row["created_at"]
+    )
+
+
+@router.get("", response_model=list[ChannelOut])
+def list_channels(request: Request) -> list[ChannelOut]:
+    return [_to_channel(row) for row in request.app.state.db.list_channels()]
+
+
+@router.post("", response_model=ChannelOut, status_code=201)
+def add_channel(body: ChannelIn, request: Request) -> ChannelOut:
+    channel_input = body.input.strip()
+    label = youtube_client.probe_channel(channel_input)  # ValueError (empty) → 422 handler
+    if label is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not find a YouTube channel for {channel_input!r} — "
+            "expected an @handle, a UC... channel ID, or a channel URL",
+        )
+    try:
+        row = request.app.state.db.add_channel(channel_input, body.label or label)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail=f"Channel {channel_input!r} already exists")
+    return _to_channel(row)
+
+
+@router.delete("/{channel_id}", status_code=204)
+def delete_channel(channel_id: int, request: Request) -> None:
+    if not request.app.state.db.delete_channel(channel_id):
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+
+@router.get("/{channel_id}/videos", response_model=VideoListOut)
+def list_videos(
+    channel_id: int,
+    request: Request,
+    max: int | None = Query(default=None, ge=1, le=100),
+) -> VideoListOut:
+    state = request.app.state
+    row = state.db.get_channel(channel_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    videos = youtube_client.list_recent_videos(row["input"], max or state.config.max_videos_fetch)
+    processed = state.db.processed_ids()
+    return VideoListOut(
+        channel=_to_channel(row),
+        videos=[
+            VideoOut(
+                video_id=video.video_id,
+                title=video.title,
+                published_at=video.published_at,
+                url=video.url,
+                processed=video.video_id in processed,
+            )
+            for video in videos
+        ],
+    )
