@@ -13,6 +13,15 @@ max_videos_fetch: 25
 # transcript (including auto-generated) if none of these exist.
 transcript_languages: [en]
 
+# Minimum seconds between requests to YouTube. Raise this if you keep hitting
+# "YouTube rate limit (HTTP 429)" errors; lower it at your own risk.
+youtube_request_interval: 2.0
+
+# Optional: path to a cookies file in Netscape format (e.g. exported with a
+# "Get cookies.txt" browser extension while logged in to YouTube). Logged-in
+# requests get noticeably higher rate limits.
+# cookies_file: ~/youtube-cookies.txt
+
 # ---------------------------------------------------------------------------
 # Claude settings
 # ---------------------------------------------------------------------------

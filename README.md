@@ -126,9 +126,16 @@ table and a `channel_id` column are added; old summaries appear under
 ## Troubleshooting
 
 - **"No transcript — skipped"** — the video has no captions (disabled by the
-  uploader, or not yet generated for a very recent upload/live), or YouTube is
-  rate-limiting caption downloads from your IP (`HTTP Error 429` in the
-  detail). Skipped videos stay unprocessed and can be retried later.
+  uploader, or not yet generated for a very recent upload/live). Skipped
+  videos stay unprocessed and can be retried later.
+- **"YouTube rate limit (HTTP 429)"** — YouTube is throttling requests from
+  your IP. Requests are already paced (`youtube_request_interval` in
+  `config.yaml`, default 2 s) and retried once after a 20 s backoff; when the
+  429 persists, the remaining videos in the batch are skipped so the
+  throttling isn't made worse. Wait a few minutes and rerun the estimate —
+  already-summarized videos reuse their stored transcript and cost no YouTube
+  requests. If it keeps happening, raise `youtube_request_interval` or set
+  `cookies_file` (logged-in requests get higher limits).
 - **No videos found / yt-dlp errors** — YouTube changes its site regularly;
   update with `.venv/bin/pip install -U yt-dlp`.
 - **"Anthropic authentication failed" (HTTP 502)** — check that `backend/.env`
