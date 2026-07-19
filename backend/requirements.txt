@@ -4,3 +4,4 @@ yt-dlp
 anthropic
 python-dotenv
 PyYAML
+pytest

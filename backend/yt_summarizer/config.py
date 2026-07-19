@@ -26,6 +26,8 @@ class Config:
     channel: str
     max_videos_fetch: int
     transcript_languages: tuple[str, ...]
+    youtube_request_interval: float
+    cookies_file: Path | None
     model: str
     max_output_tokens: int
     estimated_output_tokens: int
@@ -77,6 +79,8 @@ def load_config(path: Path) -> Config:
         channel=str(raw.get("channel") or "").strip(),
         max_videos_fetch=int(raw.get("max_videos_fetch", 25)),
         transcript_languages=tuple(str(lang) for lang in raw.get("transcript_languages") or ["en"]),
+        youtube_request_interval=float(raw.get("youtube_request_interval", 2.0)),
+        cookies_file=Path(str(raw["cookies_file"])).expanduser() if raw.get("cookies_file") else None,
         model=str(raw.get("model", "claude-opus-4-8")),
         max_output_tokens=int(raw.get("max_output_tokens", 8192)),
         estimated_output_tokens=int(raw.get("estimated_output_tokens", 2000)),
