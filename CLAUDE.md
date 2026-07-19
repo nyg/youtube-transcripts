@@ -79,14 +79,17 @@ flagged (`VideoOut.date_approximate`) and shown with a `~`. Getting exact dates
 for the whole listing would need one metadata request per video (slow, 429-prone)
 — don't do that.
 
-**Layout stability (no horizontal flicker).** `src/index.css` sets
-`scrollbar-gutter: stable` on `<html>` so the scrollbar's space is always
-reserved (fixes tab-switch shift). Radix overlays (channel dropdown, dialogs)
-lock scroll via `react-remove-scroll`, which *also* adds a compensating
-`margin-right` on `body[data-scroll-locked]` — double-counting the gutter and
-shifting the page. The `html body[data-scroll-locked] { margin-right/padding-right:
-0 !important }` rule neutralizes that. Keep both rules; test dropdown + dialog
-open for shift if you touch layout/CSS.
+**Layout stability + always-visible scrollbar.** `src/index.css` sets
+`overflow-y: scroll` on `<html>` so the vertical scrollbar is always present.
+This (a) stops the layout shifting when switching between a tall and short view,
+and (b) keeps the scrollbar visible when a Radix overlay opens: Radix locks
+scroll by setting `overflow: hidden` on `<body>`, which would remove a
+body-owned scrollbar, but the one on `<html>` stays. Radix (`react-remove-scroll`)
+also adds a compensating `margin-right` on `body[data-scroll-locked]`; since our
+scrollbar never goes away that would shift the page, so
+`html body[data-scroll-locked] { margin-right/padding-right: 0 !important }`
+neutralizes it. Keep both rules; test dropdown + dialog open for shift and for a
+vanishing scrollbar if you touch layout/CSS.
 
 **Reprocessing.** Already-processed videos are selectable in the Process tab
 (status flips to "Reprocess"). The estimate endpoint reuses the stored transcript
