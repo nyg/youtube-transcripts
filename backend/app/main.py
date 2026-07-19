@@ -33,7 +33,6 @@ async def lifespan(app: FastAPI):
         request_interval=cfg.youtube_request_interval,
         cookiefile=cfg.cookies_file,
     )
-    paths.migrate_legacy_database(cfg.database)
     log.info("Using database at %s", cfg.database)
     db = Database(cfg.database)
     if cfg.channel and not db.list_channels():
