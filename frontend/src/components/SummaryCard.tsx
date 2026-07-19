@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm"
 
 import { useSummaryDetail } from "@/api/queries"
 import type { Summary } from "@/api/types"
+import { formatDateTime } from "@/lib/datetime"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,7 +39,7 @@ export function SummaryCard({ summary }: Props) {
           </a>
         </CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-2">
-          <span>{summary.published_at ?? "unknown date"}</span>
+          <span>{formatDateTime(summary.published_at)}</span>
           <Badge variant="outline">{summary.model}</Badge>
           <Badge variant="outline">{summary.prompt_name}</Badge>
           {summary.cost_usd != null && (

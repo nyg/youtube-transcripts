@@ -22,9 +22,10 @@ class ChannelOut(BaseModel):
 class VideoOut(BaseModel):
     video_id: str
     title: str
-    published_at: str | None
+    published_at: str | None  # UTC ISO 8601; rendered in the viewer's local time
     url: str
     processed: bool
+    date_approximate: bool = False  # True when published_at is only an estimate
 
 
 class VideoListOut(BaseModel):

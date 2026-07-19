@@ -8,6 +8,8 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from . import paths
+
 
 class ConfigError(Exception):
     """Raised when the configuration file is missing or invalid."""
@@ -42,6 +44,9 @@ class Config:
 
 
 def load_config(path: Path) -> Config:
+    # Secrets live in a .env next to the config file; also fall back to the
+    # default search (CWD and parents) so an existing backend/.env keeps working.
+    load_dotenv(path.parent / ".env")
     load_dotenv()
 
     if not path.exists():
@@ -87,5 +92,5 @@ def load_config(path: Path) -> Config:
         pricing=pricing,
         active_prompt=active_prompt,
         prompts=prompts,
-        database=Path(raw.get("database", "data/videos.db")),
+        database=paths.resolve_database_path(raw.get("database")),
     )

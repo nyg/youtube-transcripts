@@ -127,5 +127,21 @@
     }
   html {
     @apply font-sans;
+    /* Keep the vertical scrollbar permanently on <html>. This both prevents the
+       layout from shifting when switching between a tall (scrolling) view and a
+       short one, and keeps the scrollbar visible when a Radix popover/dialog
+       opens: those lock scroll by setting `overflow: hidden` on <body>, which
+       would remove a body-owned scrollbar — but the one on <html> stays. */
+    overflow-y: scroll;
+    }
+  /* Radix popovers/dialogs (channel dropdown, estimate dialog, …) lock body
+     scroll via react-remove-scroll, which also adds a compensating margin/
+     padding to the body for the scrollbar it thinks it removed. Our scrollbar
+     lives on <html> and never goes away, so that compensation just shifts the
+     page a few px — neutralise it. The `html` prefix raises specificity above
+     the library's own `body[data-scroll-locked] !important` rule so this wins. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
     }
 }
