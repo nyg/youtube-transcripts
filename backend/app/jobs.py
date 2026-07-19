@@ -49,10 +49,29 @@ class JobRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
+        # Set while the background monitor is running a cycle. It shares the
+        # single-job invariant with user-initiated jobs so the two never run
+        # concurrently (see monitor.py).
+        self._monitor_active = False
+
+    def _busy(self) -> bool:
+        return self._monitor_active or any(job.status == "running" for job in self._jobs.values())
 
     def has_running_job(self) -> bool:
         with self._lock:
-            return any(job.status == "running" for job in self._jobs.values())
+            return self._busy()
+
+    def reserve_for_monitor(self) -> bool:
+        """Claim the single-job slot for the monitor. False if anything is running."""
+        with self._lock:
+            if self._busy():
+                return False
+            self._monitor_active = True
+            return True
+
+    def release_monitor(self) -> None:
+        with self._lock:
+            self._monitor_active = False
 
     def start(
         self,
@@ -74,7 +93,7 @@ class JobRegistry:
             ],
         )
         with self._lock:
-            if any(existing.status == "running" for existing in self._jobs.values()):
+            if self._busy():
                 raise JobConflictError("A summarization job is already running")
             self._jobs[job.job_id] = job
         thread = threading.Thread(

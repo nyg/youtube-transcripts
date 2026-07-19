@@ -5,6 +5,7 @@ export interface Channel {
   input: string
   label: string
   created_at: string
+  prompt_name: string | null // per-channel prompt; null = active_prompt
 }
 
 export interface Video {
@@ -92,4 +93,7 @@ export interface Meta {
   active_prompt: string
   estimated_output_tokens: number
   max_videos_fetch: number
+  monitoring_enabled: boolean
+  daily_budget_usd: number
+  spend_today_usd: number
 }

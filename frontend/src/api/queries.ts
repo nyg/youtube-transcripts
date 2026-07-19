@@ -52,6 +52,18 @@ export function useDeleteChannel() {
   })
 }
 
+export function useUpdateChannel() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { channelId: number; promptName: string | null }) =>
+      api<Channel>(`/api/channels/${vars.channelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ prompt_name: vars.promptName }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
+  })
+}
+
 export function useVideos(channelId: number) {
   return useQuery({
     queryKey: ["videos", channelId],

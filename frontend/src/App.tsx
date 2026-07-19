@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { useChannels } from "@/api/queries"
 import { ChannelManagerDialog } from "@/components/ChannelManagerDialog"
 import { ChannelSelect } from "@/components/ChannelSelect"
+import { MonitorStatus } from "@/components/MonitorStatus"
 import { ProcessTab } from "@/components/ProcessTab"
 import { SummaryList } from "@/components/SummaryList"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,9 @@ function App() {
         <Button variant="outline" onClick={() => setManageOpen(true)}>
           Manage channels
         </Button>
+        <div className="w-full">
+          <MonitorStatus />
+        </div>
       </header>
 
       {channels && channels.length === 0 && (

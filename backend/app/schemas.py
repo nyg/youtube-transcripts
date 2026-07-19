@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 class ChannelIn(BaseModel):
     input: str
     label: str | None = None  # defaults to the channel name found on YouTube
+    prompt_name: str | None = None  # per-channel prompt; None = config's active_prompt
+
+
+class ChannelPatch(BaseModel):
+    # None clears the override (falls back to active_prompt). Absent = no change.
+    prompt_name: str | None = None
 
 
 class ChannelOut(BaseModel):
@@ -17,6 +23,7 @@ class ChannelOut(BaseModel):
     input: str
     label: str
     created_at: str
+    prompt_name: str | None = None
 
 
 class VideoOut(BaseModel):
@@ -113,3 +120,11 @@ class MetaOut(BaseModel):
     active_prompt: str
     estimated_output_tokens: int
     max_videos_fetch: int
+    monitoring_enabled: bool
+    daily_budget_usd: float
+    spend_today_usd: float
+
+
+class MonitorRunOut(BaseModel):
+    started: bool  # False if a job/cycle was already running
+    detail: str
