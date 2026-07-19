@@ -1,6 +1,7 @@
 .PHONY: install backend frontend start stop restart status logs
 
 RUN_DIR := .run
+HOST ?= 0.0.0.0
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 5173
 
@@ -20,11 +21,13 @@ frontend:
 # Both servers are launched with nohup and detached, so they keep running after
 # you log out. PIDs and logs live in $(RUN_DIR)/. No --reload (meant for an
 # always-on box like a Raspberry Pi) and a single uvicorn worker so exactly one
-# monitor scheduler runs. Servers bind to localhost; to reach them from another
-# machine on your LAN, add `--host 0.0.0.0` (uvicorn) and `--host` (vite) below.
+# monitor scheduler runs. Servers bind to 0.0.0.0 so you can reach them from
+# other machines on your LAN (use the box's IP, e.g. http://192.168.x.y:$(FRONTEND_PORT)).
+# To restrict to this machine only, run: make start HOST=127.0.0.1
 start: start-backend start-frontend
-	@echo "Backend  -> http://localhost:$(BACKEND_PORT)   (log: $(RUN_DIR)/backend.log)"
-	@echo "Frontend -> http://localhost:$(FRONTEND_PORT)   (log: $(RUN_DIR)/frontend.log)"
+	@echo "Backend  -> http://$(HOST):$(BACKEND_PORT)   (log: $(RUN_DIR)/backend.log)"
+	@echo "Frontend -> http://$(HOST):$(FRONTEND_PORT)   (log: $(RUN_DIR)/frontend.log)"
+	@echo "On your LAN, browse to http://<this-machine-ip>:$(FRONTEND_PORT)"
 	@echo "Manage with: make status | make logs | make stop"
 
 start-backend:
@@ -32,7 +35,7 @@ start-backend:
 	@if [ -f $(RUN_DIR)/backend.pid ] && kill -0 `cat $(RUN_DIR)/backend.pid` 2>/dev/null; then \
 		echo "backend already running (PID `cat $(RUN_DIR)/backend.pid`)"; \
 	else \
-		( cd backend && exec nohup ../.venv/bin/uvicorn app.main:app --port $(BACKEND_PORT) ) > $(RUN_DIR)/backend.log 2>&1 & \
+		( cd backend && exec nohup ../.venv/bin/uvicorn app.main:app --host $(HOST) --port $(BACKEND_PORT) ) > $(RUN_DIR)/backend.log 2>&1 & \
 		echo $$! > $(RUN_DIR)/backend.pid; \
 		echo "backend started (PID `cat $(RUN_DIR)/backend.pid`)"; \
 	fi
@@ -42,7 +45,7 @@ start-frontend:
 	@if [ -f $(RUN_DIR)/frontend.pid ] && kill -0 `cat $(RUN_DIR)/frontend.pid` 2>/dev/null; then \
 		echo "frontend already running (PID `cat $(RUN_DIR)/frontend.pid`)"; \
 	else \
-		( cd frontend && exec nohup node_modules/.bin/vite --port $(FRONTEND_PORT) ) > $(RUN_DIR)/frontend.log 2>&1 & \
+		( cd frontend && exec nohup node_modules/.bin/vite --host $(HOST) --port $(FRONTEND_PORT) ) > $(RUN_DIR)/frontend.log 2>&1 & \
 		echo $$! > $(RUN_DIR)/frontend.pid; \
 		echo "frontend started (PID `cat $(RUN_DIR)/frontend.pid`)"; \
 	fi
