@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from yt_summarizer import youtube_client
+from yt_summarizer import paths, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
 from yt_summarizer.config import load_config
 from yt_summarizer.database import Database
@@ -27,11 +26,15 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cfg = load_config(Path("config.yaml"))
+    config_file = paths.config_path()
+    log.info("Loading config from %s", config_file)
+    cfg = load_config(config_file)
     youtube_client.configure(
         request_interval=cfg.youtube_request_interval,
         cookiefile=cfg.cookies_file,
     )
+    paths.migrate_legacy_database(cfg.database)
+    log.info("Using database at %s", cfg.database)
     db = Database(cfg.database)
     if cfg.channel and not db.list_channels():
         db.add_channel(cfg.channel, cfg.channel)

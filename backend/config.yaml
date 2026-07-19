@@ -66,4 +66,8 @@ prompts:
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
-database: data/videos.db
+# Where the SQLite database lives. Leave unset to use the XDG data directory
+# ($XDG_DATA_HOME/yt-summarizer/videos.db, i.e. ~/.local/share/yt-summarizer/
+# videos.db by default). An absolute path is honoured as-is; a relative path is
+# resolved under the XDG data directory.
+# database: videos.db

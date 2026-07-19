@@ -47,6 +47,12 @@ cp backend/.env.example backend/.env    # then put your ANTHROPIC_API_KEY in it
 Optionally edit `backend/config.yaml` — the `channel` there is seeded into the
 database on first start; after that, channels are managed entirely in the UI.
 
+The bundled `backend/config.yaml` is used out of the box. To keep your own
+config outside the checkout, copy it to `~/.config/yt-summarizer/config.yaml`
+(honouring `$XDG_CONFIG_HOME`); it takes precedence when present. Secrets go in
+a `.env` next to whichever config file is used. `$YT_SUMMARIZER_CONFIG` points
+directly at a config file and overrides both.
+
 ## Running
 
 Two processes, one terminal each:
@@ -60,9 +66,10 @@ make frontend   # Vite on http://localhost:5173 — open this in your browser
 
 1. **Add channels** — "Manage channels", enter an `@handle`, `UC…` channel ID,
    or channel URL. Switch channels with the dropdown.
-2. **Select videos** — the *Process videos* tab lists recent videos, with
-   already-processed ones marked. Tick the ones you want (the header checkbox
-   selects all new).
+2. **Select videos** — the *Process videos* tab lists recent videos with their
+   real publish dates (shown in your local time), already-processed ones
+   marked. Tick the ones you want (the header checkbox selects all new); ticking
+   an already-processed video reprocesses it.
 3. **Estimate (free)** — "Estimate cost" fetches transcripts and counts input
    tokens server-side with Anthropic's free endpoint. Videos without
    transcripts are skipped and shown as such. You can switch the prompt here.
@@ -86,31 +93,35 @@ make frontend   # Vite on http://localhost:5173 — open this in your browser
 | `estimated_output_tokens` | Assumed output size for the *pre-call* cost estimate |
 | `pricing` | $/1M input & output tokens per model — used for cost math |
 | `active_prompt` / `prompts` | Named system prompts; `active_prompt` is the default, selectable per run in the UI |
-| `database` | SQLite file path (default `data/videos.db`, relative to `backend/`) |
+| `database` | SQLite file path. Unset (default) → `$XDG_DATA_HOME/yt-summarizer/videos.db` (i.e. `~/.local/share/yt-summarizer/videos.db`). An absolute path is used as-is; a relative path resolves under the XDG data dir |
 
-Secrets live in `backend/.env` (only `ANTHROPIC_API_KEY`), never in
-`config.yaml`.
+Secrets live in a `.env` next to the config file (`backend/.env` for the
+bundled config; `~/.config/yt-summarizer/.env` for an XDG one) — only
+`ANTHROPIC_API_KEY` — never in `config.yaml`.
 
-## Data & migrating from the CLI version
+## Data & migrating
 
-The database now lives at `backend/data/videos.db`. If you used the old CLI
-version, copy your existing database there to keep your processed history:
-
-```bash
-mkdir -p backend/data && cp data/videos.db backend/data/videos.db
-```
+The database lives at `~/.local/share/yt-summarizer/videos.db` (following the
+XDG Base Directory spec; override with `$XDG_DATA_HOME` or the `database:`
+config key). On the first start, if that file does not exist yet but a pre-XDG
+`backend/data/videos.db` does, it is copied over automatically so your
+processed history is preserved (the original is left untouched).
 
 The schema is upgraded automatically on the next backend start (a `channels`
-table and a `channel_id` column are added; old summaries appear under
-"All channels").
+table and a `channel_id` column are added).
 
 ## How it works
 
 1. yt-dlp lists the channel's `/videos` and `/streams` tabs (flat extraction —
    two cheap requests, no API key). Shorts live in a separate tab and are never
-   fetched.
-2. The list is diffed against the SQLite database, so already-processed videos
-   are marked and can't be re-selected.
+   fetched. The flat listing only carries approximate dates, so they are
+   upgraded to exact publish times from the channel's RSS feed (one more cheap
+   request covering the ~15 newest videos); already-processed videos reuse the
+   exact date stored in the database. Anything still approximate is marked with
+   a "~". All times are sent as UTC and rendered in the viewer's local time.
+2. The list is diffed against the SQLite database so already-processed videos
+   are marked; they can still be ticked to reprocess them (reusing the stored
+   transcript).
 3. The estimate endpoint fetches each video's exact metadata and transcript,
    and computes the *exact* input token count with Anthropic's free
    `count_tokens` endpoint. The fetched transcripts are kept server-side,
@@ -147,5 +158,7 @@ table and a `channel_id` column are added; old summaries appear under
   again.
 - **Costs look wrong** — the `pricing` table in `config.yaml` is only used for
   display; keep it in sync with the official pricing page.
-- **Reprocess a video** — delete its row:
-  `sqlite3 backend/data/videos.db "DELETE FROM video_summaries WHERE video_id='...'"`.
+- **Reprocess a video** — in the *Process videos* tab, tick an
+  already-processed video (its status flips to "Reprocess") and run the
+  estimate as usual. The stored transcript is reused, and the new summary
+  overwrites the old one.

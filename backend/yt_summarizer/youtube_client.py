@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -87,9 +88,15 @@ def fetch_url(url: str) -> bytes:
 class Video:
     video_id: str
     title: str
-    published_at: str | None  # local "YYYY-MM-DD HH:MM[:SS]"; approximate at listing time
+    # UTC ISO 8601 timestamp (e.g. "2026-07-18T18:00:38+00:00"); the frontend
+    # renders it in the viewer's local timezone and locale.
+    published_at: str | None
     url: str
     timestamp: int | None = None  # epoch seconds, used for sorting
+    # True while the date is only the cheap approximation from the flat channel
+    # listing (day-level, no time). Exact dates come from the RSS feed or a
+    # per-video metadata fetch.
+    date_is_approximate: bool = False
 
 
 def _normalize_channel_url(channel: str) -> str:
@@ -111,14 +118,15 @@ def _normalize_channel_url(channel: str) -> str:
     return base
 
 
-def _local_datetime(ts: float | None) -> str | None:
-    """Epoch seconds → local 'YYYY-MM-DD HH:MM'."""
+def _utc_iso(ts: float | None) -> str | None:
+    """Epoch seconds → UTC ISO 8601, e.g. '2026-07-18T18:00:38+00:00'."""
     if not ts:
         return None
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _list_tab(tab_url: str, max_videos: int) -> list[Video]:
+def _list_tab(tab_url: str, max_videos: int) -> tuple[str | None, list[Video]]:
+    """Return (channel_id, videos) for one channel tab via flat extraction."""
     opts = _ydl_opts(
         extract_flat="in_playlist",
         playlist_items=f"1:{max_videos}",
@@ -132,10 +140,11 @@ def _list_tab(tab_url: str, max_videos: int) -> list[Video]:
     except DownloadError as exc:
         # Channels without lives (or without uploads) simply lack the tab.
         log.debug("No entries for %s: %s", tab_url, exc)
-        return []
+        return None, []
 
+    info = info or {}
     videos: list[Video] = []
-    for entry in (info or {}).get("entries") or []:
+    for entry in info.get("entries") or []:
         if not entry or not entry.get("id"):
             continue
         ts = entry.get("timestamp") or entry.get("release_timestamp")
@@ -143,12 +152,41 @@ def _list_tab(tab_url: str, max_videos: int) -> list[Video]:
             Video(
                 video_id=entry["id"],
                 title=entry.get("title") or entry["id"],
-                published_at=_local_datetime(ts),
+                published_at=_utc_iso(ts),
                 url=f"https://www.youtube.com/watch?v={entry['id']}",
                 timestamp=int(ts) if ts else None,
+                date_is_approximate=True,
             )
         )
-    return videos
+    return info.get("channel_id"), videos
+
+
+def _fetch_rss_dates(channel_id: str) -> dict[str, str]:
+    """Exact publish dates for the ~15 newest videos, from the channel's RSS
+    feed. One cheap request, no per-video metadata extraction. Returns a
+    video_id → UTC ISO 8601 mapping (empty on any failure)."""
+    url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    try:
+        raw = fetch_url(url)
+    except Exception as exc:  # network / 429 / parse — dates stay approximate
+        log.debug("RSS date fetch failed for %s: %s", channel_id, exc)
+        return {}
+    ns = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "yt": "http://www.youtube.com/xml/schemas/2015",
+    }
+    dates: dict[str, str] = {}
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        log.debug("Could not parse RSS feed for %s: %s", channel_id, exc)
+        return {}
+    for entry in root.findall("atom:entry", ns):
+        video_id = entry.findtext("yt:videoId", namespaces=ns)
+        published = entry.findtext("atom:published", namespaces=ns)
+        if video_id and published:
+            dates[video_id] = published
+    return dates
 
 
 def probe_channel(channel: str) -> str | None:
@@ -170,13 +208,40 @@ def probe_channel(channel: str) -> str | None:
     return None
 
 
+def _to_epoch(iso: str) -> int | None:
+    try:
+        return int(datetime.fromisoformat(iso).timestamp())
+    except ValueError:
+        return None
+
+
 def list_recent_videos(channel: str, max_videos: int) -> list[Video]:
-    """Return the channel's most recent videos + live VODs, newest first."""
+    """Return the channel's most recent videos + live VODs, newest first.
+
+    Dates from the flat listing are only approximate; they are upgraded to the
+    exact publish times from the channel's RSS feed (one cheap request covering
+    the ~15 newest videos) where available.
+    """
     base = _normalize_channel_url(channel)
     merged: dict[str, Video] = {}
+    channel_id: str | None = None
     for tab in _TABS:
-        for video in _list_tab(f"{base}/{tab}", max_videos):
+        tab_channel_id, videos = _list_tab(f"{base}/{tab}", max_videos)
+        channel_id = channel_id or tab_channel_id
+        for video in videos:
             merged.setdefault(video.video_id, video)
+
+    if channel_id:
+        for video_id, published in _fetch_rss_dates(channel_id).items():
+            existing = merged.get(video_id)
+            if existing is not None:
+                merged[video_id] = replace(
+                    existing,
+                    published_at=published,
+                    timestamp=_to_epoch(published) or existing.timestamp,
+                    date_is_approximate=False,
+                )
+
     ordered = sorted(merged.values(), key=lambda v: v.timestamp or 0, reverse=True)
     return ordered[:max_videos]
 
@@ -206,16 +271,25 @@ def fetch_video_details(video: Video) -> tuple[Video, dict[str, Any] | None]:
     ts = info.get("release_timestamp") or info.get("timestamp")
     upload_date = info.get("upload_date")
     if ts:
-        published = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        published = _utc_iso(ts)
+        approximate = False
     elif upload_date:
-        published = datetime.strptime(str(upload_date), "%Y%m%d").date().isoformat()
+        # Only a date is known (no time of day) — treat it as UTC midnight.
+        published = (
+            datetime.strptime(str(upload_date), "%Y%m%d")
+            .replace(tzinfo=timezone.utc)
+            .isoformat()
+        )
+        approximate = False
     else:
         published = video.published_at
+        approximate = video.date_is_approximate
 
     video = replace(
         video,
         title=info.get("title") or video.title,
         published_at=published,
         timestamp=int(ts) if ts else video.timestamp,
+        date_is_approximate=approximate,
     )
     return video, info

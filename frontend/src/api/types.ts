@@ -13,6 +13,7 @@ export interface Video {
   published_at: string | null
   url: string
   processed: boolean
+  date_approximate: boolean
 }
 
 export interface VideoList {

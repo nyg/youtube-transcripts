@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react"
 
 import { useVideos } from "@/api/queries"
+import { formatPublished } from "@/lib/datetime"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -67,7 +68,8 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
       <div className="flex items-center gap-3">
         <p className="text-muted-foreground mr-auto text-sm">
           {videos.length} recent videos — {newVideos.length} new,{" "}
-          {videos.length - newVideos.length} processed
+          {videos.length - newVideos.length} processed. Tick a processed video to
+          reprocess it.
         </p>
         <Button
           variant="ghost"
@@ -111,14 +113,13 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
                   <Checkbox
                     aria-label={`Select ${video.title}`}
                     checked={selected.has(video.video_id)}
-                    disabled={video.processed}
                     onCheckedChange={(checked) =>
                       toggle(video.video_id, checked === true)
                     }
                   />
                 </TableCell>
                 <TableCell className="text-muted-foreground whitespace-nowrap">
-                  {video.published_at ?? "?"}
+                  {formatPublished(video.published_at, video.date_approximate)}
                 </TableCell>
                 <TableCell className="whitespace-normal">
                   <a
@@ -131,10 +132,12 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
                   </a>
                 </TableCell>
                 <TableCell>
-                  {video.processed ? (
-                    <Badge variant="secondary">Processed</Badge>
-                  ) : (
+                  {!video.processed ? (
                     <Badge>New</Badge>
+                  ) : selected.has(video.video_id) ? (
+                    <Badge variant="outline">Reprocess</Badge>
+                  ) : (
+                    <Badge variant="secondary">Processed</Badge>
                   )}
                 </TableCell>
               </TableRow>

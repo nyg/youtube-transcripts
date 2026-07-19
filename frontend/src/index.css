@@ -127,5 +127,9 @@
     }
   html {
     @apply font-sans;
+    /* Always reserve room for the vertical scrollbar so switching between a
+       tall (scrolling) view and a short one doesn't shift the layout
+       horizontally. */
+    scrollbar-gutter: stable;
     }
 }

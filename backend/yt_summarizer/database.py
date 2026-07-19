@@ -95,6 +95,15 @@ class Database:
             rows = conn.execute("SELECT video_id FROM video_summaries").fetchall()
         return {row["video_id"] for row in rows}
 
+    def published_dates(self) -> dict[str, str]:
+        """video_id → stored (exact) publish date, for videos we have processed."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT video_id, published_at FROM video_summaries "
+                "WHERE published_at IS NOT NULL"
+            ).fetchall()
+        return {row["video_id"]: row["published_at"] for row in rows}
+
     def save_summary(
         self,
         *,

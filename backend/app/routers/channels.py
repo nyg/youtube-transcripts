@@ -59,16 +59,22 @@ def list_videos(
         raise HTTPException(status_code=404, detail="Channel not found")
     videos = youtube_client.list_recent_videos(row["input"], max or state.config.max_videos_fetch)
     processed = state.db.processed_ids()
+    # Already-processed videos have an exact publish date stored — prefer it over
+    # the (possibly approximate) date from the listing.
+    stored_dates = state.db.published_dates()
+
+    def _out(video: youtube_client.Video) -> VideoOut:
+        exact = stored_dates.get(video.video_id)
+        return VideoOut(
+            video_id=video.video_id,
+            title=video.title,
+            published_at=exact or video.published_at,
+            url=video.url,
+            processed=video.video_id in processed,
+            date_approximate=video.date_is_approximate and exact is None,
+        )
+
     return VideoListOut(
         channel=_to_channel(row),
-        videos=[
-            VideoOut(
-                video_id=video.video_id,
-                title=video.title,
-                published_at=video.published_at,
-                url=video.url,
-                processed=video.video_id in processed,
-            )
-            for video in videos
-        ],
+        videos=[_out(video) for video in videos],
     )
