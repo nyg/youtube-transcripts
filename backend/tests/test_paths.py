@@ -57,34 +57,3 @@ def test_config_falls_back_to_bundled(monkeypatch, tmp_path):
     result = paths.config_path()
     assert result.name == "config.yaml"
     assert result.parent.name == "backend"
-
-
-# --- migrate_legacy_database ------------------------------------------------
-
-
-def test_migration_copies_legacy_when_target_missing(monkeypatch, tmp_path):
-    legacy = tmp_path / "legacy" / "videos.db"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_bytes(b"sqlite-bytes")
-    monkeypatch.setattr(paths, "_LEGACY_DATABASE", legacy)
-
-    target = tmp_path / "xdg" / "videos.db"
-    assert paths.migrate_legacy_database(target) is True
-    assert target.read_bytes() == b"sqlite-bytes"
-    assert legacy.exists()  # original left untouched
-
-
-def test_migration_skipped_when_target_exists(monkeypatch, tmp_path):
-    legacy = tmp_path / "legacy.db"
-    legacy.write_bytes(b"old")
-    monkeypatch.setattr(paths, "_LEGACY_DATABASE", legacy)
-
-    target = tmp_path / "videos.db"
-    target.write_bytes(b"current")
-    assert paths.migrate_legacy_database(target) is False
-    assert target.read_bytes() == b"current"
-
-
-def test_migration_skipped_when_no_legacy(monkeypatch, tmp_path):
-    monkeypatch.setattr(paths, "_LEGACY_DATABASE", tmp_path / "does-not-exist.db")
-    assert paths.migrate_legacy_database(tmp_path / "videos.db") is False

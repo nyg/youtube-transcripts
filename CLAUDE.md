@@ -61,8 +61,8 @@ a scratch dir and seed a test `videos.db` (see `yt_summarizer/database.py`).
 **Paths are XDG-based** (`yt_summarizer/paths.py`). Config resolves from
 `$XDG_CONFIG_HOME/yt-summarizer/config.yaml` (bundled `backend/config.yaml` is
 the fallback; `$YT_SUMMARIZER_CONFIG` overrides). Database defaults to
-`$XDG_DATA_HOME/yt-summarizer/videos.db`. A pre-XDG `backend/data/videos.db` is
-copied to the new location on first start. Don't hardcode `backend/data/...`.
+`$XDG_DATA_HOME/yt-summarizer/videos.db`. Don't hardcode a repo-relative
+database path.
 
 **Dates: store/serve UTC, render local.** The backend emits every timestamp as
 timezone-aware **UTC ISO 8601** (`youtube_client._utc_iso`, DB `*_at` columns).

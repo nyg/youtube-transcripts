@@ -103,9 +103,7 @@ bundled config; `~/.config/yt-summarizer/.env` for an XDG one) — only
 
 The database lives at `~/.local/share/yt-summarizer/videos.db` (following the
 XDG Base Directory spec; override with `$XDG_DATA_HOME` or the `database:`
-config key). On the first start, if that file does not exist yet but a pre-XDG
-`backend/data/videos.db` does, it is copied over automatically so your
-processed history is preserved (the original is left untouched).
+config key).
 
 The schema is upgraded automatically on the next backend start (a `channels`
 table and a `channel_id` column are added).

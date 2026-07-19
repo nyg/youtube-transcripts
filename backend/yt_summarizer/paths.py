@@ -16,21 +16,14 @@ for running several profiles).
 
 from __future__ import annotations
 
-import logging
 import os
-import shutil
 from pathlib import Path
-
-log = logging.getLogger(__name__)
 
 APP_NAME = "yt-summarizer"
 
 # config.yaml shipped in the repo (backend/config.yaml), used as a fallback
 # template when the user has no XDG config yet.
 _BUNDLED_CONFIG = Path(__file__).resolve().parent.parent / "config.yaml"
-
-# Where the pre-XDG builds kept the database (backend/data/videos.db).
-_LEGACY_DATABASE = _BUNDLED_CONFIG.parent / "data" / "videos.db"
 
 
 def _xdg_base(env_var: str, default: Path) -> Path:
@@ -77,20 +70,3 @@ def resolve_database_path(configured: str | None) -> Path:
             return path
         return data_home() / path
     return data_home() / "videos.db"
-
-
-def migrate_legacy_database(target: Path) -> bool:
-    """Seed the XDG database from a pre-XDG ``backend/data/videos.db``.
-
-    Only copies when the target does not exist yet, so a user who upgrades
-    keeps their processed history without losing the original file. Returns
-    True when a copy was made.
-    """
-    if target.exists() or not _LEGACY_DATABASE.exists():
-        return False
-    if _LEGACY_DATABASE.resolve() == target.resolve():
-        return False
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_LEGACY_DATABASE, target)
-    log.info("Migrated existing database %s -> %s", _LEGACY_DATABASE, target)
-    return True
