@@ -64,6 +64,34 @@ prompts:
     mention that you are working from a transcript.
 
 # ---------------------------------------------------------------------------
+# Automatic monitoring (optional)
+# ---------------------------------------------------------------------------
+# When enabled, a background scheduler inside the server checks every
+# `interval_minutes` for newly published videos on your registered channels,
+# summarizes each with that channel's prompt (set per channel in the web UI;
+# falls back to `active_prompt`), and emails a digest via the Resend API.
+#
+# There is no per-run approval when this runs unattended, so `daily_budget_usd`
+# is the spend guard: a video is only summarized if it keeps the day's total
+# (UTC) at or under the cap; otherwise it is deferred and retried after midnight.
+#
+# Requires RESEND_API_KEY in the .env next to this file. `resend_from` must be an
+# address on a domain you've verified at https://resend.com — for a first test
+# you can use "onboarding@resend.dev" and send only to your own account email.
+#
+# Run the server with a single uvicorn worker so only one scheduler exists.
+monitoring:
+  enabled: false
+  interval_minutes: 60
+  max_videos_check: 5      # recent videos scanned per channel per cycle
+  max_age_hours: 48        # ignore videos older than this (0 = no age limit)
+  daily_budget_usd: 1.00   # hard cap across all channels (0 = unlimited)
+  resend_from: "YouTube Summaries <onboarding@resend.dev>"
+  subject_prefix: "New video summaries"
+  notify_emails: []
+  #  - you@example.com
+
+# ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 # Where the SQLite database lives. Leave unset to use the XDG data directory

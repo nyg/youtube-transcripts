@@ -2,7 +2,13 @@ import { Loader2, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import { useAddChannel, useChannels, useDeleteChannel } from "@/api/queries"
+import {
+  useAddChannel,
+  useChannels,
+  useDeleteChannel,
+  useMeta,
+  useUpdateChannel,
+} from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -12,7 +18,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+
+// Radix Select can't use "" as an item value, so the "use active_prompt" choice
+// gets a sentinel that maps to null (cleared override) on the wire.
+const DEFAULT_PROMPT = "__default__"
 
 interface Props {
   open: boolean
@@ -21,8 +38,10 @@ interface Props {
 
 export function ChannelManagerDialog({ open, onOpenChange }: Props) {
   const { data: channels } = useChannels()
+  const { data: meta } = useMeta()
   const addChannel = useAddChannel()
   const deleteChannel = useDeleteChannel()
+  const updateChannel = useUpdateChannel()
   const [input, setInput] = useState("")
 
   const submit = () => {
@@ -76,20 +95,51 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
                   {channel.input}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Delete ${channel.label}`}
-                disabled={deleteChannel.isPending}
-                onClick={() =>
-                  deleteChannel.mutate(channel.id, {
-                    onSuccess: () => toast.success(`Removed ${channel.label}`),
-                    onError: (error) => toast.error(error.message),
-                  })
-                }
-              >
-                <Trash2 className="text-destructive" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Select
+                  value={channel.prompt_name ?? DEFAULT_PROMPT}
+                  onValueChange={(v) =>
+                    updateChannel.mutate(
+                      {
+                        channelId: channel.id,
+                        promptName: v === DEFAULT_PROMPT ? null : v,
+                      },
+                      { onError: (error) => toast.error(error.message) },
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    className="h-8 w-40"
+                    aria-label={`Prompt for ${channel.label}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT_PROMPT}>
+                      Default{meta ? ` (${meta.active_prompt})` : ""}
+                    </SelectItem>
+                    {(meta?.prompts ?? []).map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete ${channel.label}`}
+                  disabled={deleteChannel.isPending}
+                  onClick={() =>
+                    deleteChannel.mutate(channel.id, {
+                      onSuccess: () => toast.success(`Removed ${channel.label}`),
+                      onError: (error) => toast.error(error.message),
+                    })
+                  }
+                >
+                  <Trash2 className="text-destructive" />
+                </Button>
+              </div>
             </li>
           ))}
           {channels && channels.length === 0 && (

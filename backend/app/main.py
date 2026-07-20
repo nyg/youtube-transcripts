@@ -18,7 +18,8 @@ from yt_summarizer.database import Database
 
 from .estimates import EstimateStore
 from .jobs import JobRegistry
-from .routers import channels, estimates, jobs, meta, summaries
+from .monitor import ChannelMonitor
+from .routers import channels, estimates, jobs, meta, monitor, summaries
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -43,7 +44,15 @@ async def lifespan(app: FastAPI):
     app.state.summarizer = ClaudeSummarizer(cfg.model, cfg.max_output_tokens, cfg.pricing)
     app.state.estimates = EstimateStore()
     app.state.jobs = JobRegistry()
-    yield
+    app.state.monitor = ChannelMonitor(cfg, db, app.state.summarizer, app.state.jobs)
+    if cfg.monitor.enabled:
+        app.state.monitor.start()
+    else:
+        log.info("Channel monitor disabled (set monitoring.enabled in config.yaml)")
+    try:
+        yield
+    finally:
+        app.state.monitor.stop()
 
 
 app = FastAPI(title="YouTube Summarizer", lifespan=lifespan)
@@ -59,5 +68,5 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
-for router_module in (meta, channels, estimates, jobs, summaries):
+for router_module in (meta, channels, estimates, jobs, monitor, summaries):
     app.include_router(router_module.router)

@@ -95,6 +95,18 @@ class ClaudeSummarizer:
             + tokens_output / 1_000_000 * price.output_per_mtok
         )
 
+    def cost(self, tokens_input: int, tokens_output: int) -> float | None:
+        """Public price for a token count; None if the model has no pricing entry.
+
+        Used for the monitor's worst-case budget pre-check
+        (cost(input_tokens, max_output_tokens)) before spending on a call.
+        """
+        return self._cost(tokens_input, tokens_output)
+
+    @property
+    def max_output_tokens(self) -> int:
+        return self._max_output_tokens
+
     def estimate(self, prompt: str, transcript: str, estimated_output_tokens: int) -> CostEstimate:
         """Count input tokens server-side (free, exact) and estimate the cost."""
         with _api_errors(self._model):

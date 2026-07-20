@@ -26,10 +26,11 @@ CREATE TABLE IF NOT EXISTS video_summaries (
 );
 
 CREATE TABLE IF NOT EXISTS channels (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    input      TEXT UNIQUE NOT NULL,
-    label      TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    input       TEXT UNIQUE NOT NULL,
+    label       TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    prompt_name TEXT
 );
 """
 
@@ -44,6 +45,10 @@ class Database:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(video_summaries)")}
             if "channel_id" not in columns:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN channel_id INTEGER")
+            # Databases created before per-channel prompts lack this column.
+            channel_columns = {row[1] for row in conn.execute("PRAGMA table_info(channels)")}
+            if "prompt_name" not in channel_columns:
+                conn.execute("ALTER TABLE channels ADD COLUMN prompt_name TEXT")
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection]:
@@ -66,19 +71,32 @@ class Database:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
 
-    def add_channel(self, input: str, label: str) -> sqlite3.Row:
+    def add_channel(self, input: str, label: str, prompt_name: str | None = None) -> sqlite3.Row:
         """Insert a channel and return its row. Raises sqlite3.IntegrityError on duplicates."""
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO channels (input, label, created_at) VALUES (?, ?, ?)",
-                (input, label, created_at),
+                "INSERT INTO channels (input, label, created_at, prompt_name) VALUES (?, ?, ?, ?)",
+                (input, label, created_at, prompt_name),
             )
             row = conn.execute(
                 "SELECT * FROM channels WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
         assert row is not None
         return row
+
+    def set_channel_prompt(self, channel_id: int, prompt_name: str | None) -> sqlite3.Row | None:
+        """Set (or clear, with None) a channel's per-channel prompt. Returns the updated row."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE channels SET prompt_name = ? WHERE id = ?",
+                (prompt_name, channel_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            return conn.execute(
+                "SELECT * FROM channels WHERE id = ?", (channel_id,)
+            ).fetchone()
 
     def delete_channel(self, channel_id: int) -> bool:
         """Delete a channel, keeping its summaries (channel_id set to NULL)."""
@@ -94,6 +112,20 @@ class Database:
         with self._connect() as conn:
             rows = conn.execute("SELECT video_id FROM video_summaries").fetchall()
         return {row["video_id"] for row in rows}
+
+    def spend_since(self, iso_start: str) -> float:
+        """Total cost_usd of summaries processed at or after `iso_start` (UTC ISO).
+
+        Reprocessing upserts processed_at, so a video (re)processed today counts
+        toward today. Rows with a NULL cost (models without pricing) are ignored.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS total FROM video_summaries "
+                "WHERE processed_at >= ?",
+                (iso_start,),
+            ).fetchone()
+        return float(row["total"] or 0.0)
 
     def published_dates(self) -> dict[str, str]:
         """video_id → stored (exact) publish date, for videos we have processed."""
