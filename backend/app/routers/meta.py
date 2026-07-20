@@ -22,9 +22,6 @@ def get_meta(request: Request) -> MetaOut:
     cfg = state.config
     return MetaOut(
         model=cfg.model,
-        prompts=list(cfg.prompts),
-        active_prompt=cfg.active_prompt,
-        estimated_output_tokens=cfg.estimated_output_tokens,
         max_videos_fetch=cfg.max_videos_fetch,
         monitoring_enabled=cfg.monitor.enabled,
         daily_budget_usd=cfg.monitor.daily_budget_usd,

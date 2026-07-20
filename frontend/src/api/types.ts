@@ -1,11 +1,20 @@
 // TypeScript mirrors of the backend's Pydantic schemas (backend/app/schemas.py).
 
+export interface Prompt {
+  id: number
+  name: string
+  text: string
+  estimated_output_tokens: number
+  created_at: string
+}
+
 export interface Channel {
   id: number
   input: string
   label: string
   created_at: string
-  prompt_name: string | null // per-channel prompt; null = active_prompt
+  prompt_name: string | null // the prompt (by name) this channel uses
+  notify_emails: string[] // digest recipients for the background monitor
 }
 
 export interface Video {
@@ -25,7 +34,6 @@ export interface VideoList {
 export interface EstimateRequest {
   channel_id: number
   video_ids: string[]
-  prompt_name?: string
 }
 
 export interface EstimateItem {
@@ -89,9 +97,6 @@ export interface SummaryDetail extends Summary {
 
 export interface Meta {
   model: string
-  prompts: string[]
-  active_prompt: string
-  estimated_output_tokens: number
   max_videos_fetch: number
   monitoring_enabled: boolean
   daily_budget_usd: number

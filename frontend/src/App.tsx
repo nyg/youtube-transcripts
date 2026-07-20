@@ -5,6 +5,7 @@ import { ChannelManagerDialog } from "@/components/ChannelManagerDialog"
 import { ChannelSelect } from "@/components/ChannelSelect"
 import { MonitorStatus } from "@/components/MonitorStatus"
 import { ProcessTab } from "@/components/ProcessTab"
+import { PromptManagerDialog } from "@/components/PromptManagerDialog"
 import { SummaryList } from "@/components/SummaryList"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,6 +17,7 @@ function App() {
     return saved ? Number(saved) : null
   })
   const [manageOpen, setManageOpen] = useState(false)
+  const [promptsOpen, setPromptsOpen] = useState(false)
 
   // Keep the selection valid as channels are added/removed.
   useEffect(() => {
@@ -42,6 +44,9 @@ function App() {
           value={channelId}
           onChange={setChannelId}
         />
+        <Button variant="outline" onClick={() => setPromptsOpen(true)}>
+          Manage prompts
+        </Button>
         <Button variant="outline" onClick={() => setManageOpen(true)}>
           Manage channels
         </Button>
@@ -52,7 +57,8 @@ function App() {
 
       {channels && channels.length === 0 && (
         <p className="text-muted-foreground py-16 text-center">
-          No channels yet — add one with “Manage channels”.
+          No channels yet — add a prompt in “Manage prompts”, then a channel in
+          “Manage channels”.
         </p>
       )}
 
@@ -72,6 +78,7 @@ function App() {
       )}
 
       <ChannelManagerDialog open={manageOpen} onOpenChange={setManageOpen} />
+      <PromptManagerDialog open={promptsOpen} onOpenChange={setPromptsOpen} />
     </div>
   )
 }

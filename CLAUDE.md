@@ -16,8 +16,8 @@ Anthropic until the user approves an on-screen cost estimate.
 frontend/  Vite + React + TS + Tailwind + shadcn/ui       (dev server :5173)
 backend/   FastAPI + uvicorn                               (API server :8000)
            ├── app/            REST API (routers/), estimate store, job worker
-           │   ├── main.py         lifespan wiring: config, db, summarizer, jobs
-           │   ├── routers/        channels, estimates, jobs, summaries, meta
+           │   ├── main.py         lifespan wiring: config, db, prompt bootstrap, jobs
+           │   ├── routers/        channels, prompts, estimates, jobs, summaries, meta
            │   ├── jobs.py         in-memory job registry + background worker
            │   ├── estimates.py    in-memory store carrying estimates -> jobs
            │   └── schemas.py      Pydantic API models
@@ -63,6 +63,23 @@ a scratch dir and seed a test `videos.db` (see `yt_summarizer/database.py`).
 the fallback; `$YT_SUMMARIZER_CONFIG` overrides). Database defaults to
 `$XDG_DATA_HOME/yt-summarizer/videos.db`. Don't hardcode a repo-relative
 database path.
+
+**Channels and prompts live in the DB, not config.** Both are UI-managed CRUD
+entities (`channels` and `prompts` tables; `routers/channels.py` /
+`routers/prompts.py`; React `ChannelManagerDialog` / `PromptManagerDialog`).
+`config.yaml` holds only global settings (model, pricing, YouTube pacing,
+monitoring cadence/budget). A **prompt** carries its own text and
+`estimated_output_tokens` (the assumed output length used for cost estimates). A
+**channel** references exactly one prompt by name (`channels.prompt_name`,
+validated against the `prompts` table) and carries its own digest recipients
+(`channels.notify_emails`, JSON). The prompt is required and drives **both** the
+manual estimate flow (`routers/estimates.py` resolves it from the channel — there
+is no per-run prompt picker) and the monitor. A prompt can't be deleted while a
+channel uses it (`Database.channels_using_prompt` → 409). Prompt names are
+immutable (channels reference them by name). On first run, `main.py`
+`_bootstrap_prompts` imports any legacy `prompts`/`active_prompt` still in
+`config.yaml` (back-filling channels that had no prompt), else seeds one starter
+prompt so a fresh install can add a channel right away.
 
 **Dates: store/serve UTC, render local.** The backend emits every timestamp as
 timezone-aware **UTC ISO 8601** (`youtube_client._utc_iso`, DB `*_at` columns).

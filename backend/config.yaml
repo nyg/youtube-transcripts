@@ -1,10 +1,9 @@
 # ---------------------------------------------------------------------------
-# Seed channel, imported into the database the first time the server starts
-# with an empty channel list. After that, channels are managed in the web UI
-# and this value is ignored.
-# Accepts an @handle ("@anthropic-ai"), a channel ID ("UC...") or a full URL.
+# Channels and prompts are managed in the web UI (stored in the database), not
+# here. Add a channel from the UI and pick one of your prompts for it; each
+# prompt carries its own estimated output tokens, and each channel its own
+# digest recipients.
 # ---------------------------------------------------------------------------
-channel: "@IvanOnTech"
 
 # How many recent videos (videos + lives, no Shorts) to list.
 max_videos_fetch: 25
@@ -28,10 +27,6 @@ youtube_request_interval: 2.0
 model: claude-opus-4-8
 max_output_tokens: 8192
 
-# Used only for the cost estimate shown before you approve a run.
-# The actual output token count (and cost) is recorded after the call.
-estimated_output_tokens: 2000
-
 # Prices in USD per 1 million tokens. Used for cost estimation — keep in sync
 # with https://platform.claude.com/docs/en/pricing if they change.
 pricing:
@@ -40,36 +35,12 @@ pricing:
   claude-haiku-4-5: { input: 1.00, output: 5.00 }
 
 # ---------------------------------------------------------------------------
-# Prompts. The chosen prompt is sent as the system prompt; the transcript is
-# sent as the user message. `active_prompt` is the default; the web UI can
-# pick any prompt defined here per run.
-# ---------------------------------------------------------------------------
-active_prompt: ivan-summary
-
-prompts:
-  ivan-summary: |
-    You are given the full transcript of video from the Ivan On Tech YouTube
-    channel. Summarize the video following the structure below:
-
-    - One short sentence describing his position on the Bitcoin market (bull or
-      bear + nuance if expressed).
-    - Two or three sentence on the stock market and financial news. - Mention
-      any altcoins that Ivan deems interesting for the upcoming bull market. He
-      usually mentioned them as part of the "holy trinity et al." For each altcoin
-      describe his stance.
-    - One sentence reserved for the most important points
-      not mentioned above.
-
-    Base the summary only on the transcript. Do not invent details. Do not
-    mention that you are working from a transcript.
-
-# ---------------------------------------------------------------------------
 # Automatic monitoring (optional)
 # ---------------------------------------------------------------------------
 # When enabled, a background scheduler inside the server checks every
 # `interval_minutes` for newly published videos on your registered channels,
-# summarizes each with that channel's prompt (set per channel in the web UI;
-# falls back to `active_prompt`), and emails a digest via the Resend API.
+# summarizes each with that channel's chosen prompt, and emails a per-channel
+# digest (to that channel's recipients) via the Resend API.
 #
 # There is no per-run approval when this runs unattended, so `daily_budget_usd`
 # is the spend guard: a video is only summarized if it keeps the day's total
@@ -78,6 +49,8 @@ prompts:
 # Requires RESEND_API_KEY in the .env next to this file. `resend_from` must be an
 # address on a domain you've verified at https://resend.com — for a first test
 # you can use "onboarding@resend.dev" and send only to your own account email.
+# Recipients are configured per channel in the web UI (a channel with no
+# recipients is still summarized, just not emailed).
 #
 # Run the server with a single uvicorn worker so only one scheduler exists.
 monitoring:
@@ -88,8 +61,6 @@ monitoring:
   daily_budget_usd: 1.00   # hard cap across all channels (0 = unlimited)
   resend_from: "YouTube Summaries <onboarding@resend.dev>"
   subject_prefix: "New video summaries"
-  notify_emails: []
-  #  - you@example.com
 
 # ---------------------------------------------------------------------------
 # Storage

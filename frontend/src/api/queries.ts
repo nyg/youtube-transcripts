@@ -11,6 +11,7 @@ import type {
   EstimateRequest,
   Job,
   Meta,
+  Prompt,
   Summary,
   SummaryDetail,
   VideoList,
@@ -34,10 +35,14 @@ export function useChannels() {
 export function useAddChannel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: string) =>
+    mutationFn: (vars: { input: string; promptName: string; notifyEmails: string[] }) =>
       api<Channel>("/api/channels", {
         method: "POST",
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({
+          input: vars.input,
+          prompt_name: vars.promptName,
+          notify_emails: vars.notifyEmails,
+        }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
   })
@@ -55,12 +60,72 @@ export function useDeleteChannel() {
 export function useUpdateChannel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { channelId: number; promptName: string | null }) =>
+    mutationFn: (vars: {
+      channelId: number
+      promptName?: string
+      notifyEmails?: string[]
+    }) =>
       api<Channel>(`/api/channels/${vars.channelId}`, {
         method: "PATCH",
-        body: JSON.stringify({ prompt_name: vars.promptName }),
+        body: JSON.stringify({
+          ...(vars.promptName !== undefined && { prompt_name: vars.promptName }),
+          ...(vars.notifyEmails !== undefined && { notify_emails: vars.notifyEmails }),
+        }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
+  })
+}
+
+export function usePrompts() {
+  return useQuery({
+    queryKey: ["prompts"],
+    queryFn: () => api<Prompt[]>("/api/prompts"),
+  })
+}
+
+export function useAddPrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { name: string; text: string; estimatedOutputTokens: number }) =>
+      api<Prompt>("/api/prompts", {
+        method: "POST",
+        body: JSON.stringify({
+          name: vars.name,
+          text: vars.text,
+          estimated_output_tokens: vars.estimatedOutputTokens,
+        }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
+  })
+}
+
+export function useUpdatePrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: {
+      promptId: number
+      text?: string
+      estimatedOutputTokens?: number
+    }) =>
+      api<Prompt>(`/api/prompts/${vars.promptId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(vars.text !== undefined && { text: vars.text }),
+          ...(vars.estimatedOutputTokens !== undefined && {
+            estimated_output_tokens: vars.estimatedOutputTokens,
+          }),
+        }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
+  })
+}
+
+export function useDeletePrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (promptId: number) =>
+      api<void>(`/api/prompts/${promptId}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
   })
 }
 

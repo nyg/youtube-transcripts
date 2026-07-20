@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -20,17 +21,25 @@ def _to_channel(row: sqlite3.Row) -> ChannelOut:
         label=row["label"],
         created_at=row["created_at"],
         prompt_name=row["prompt_name"],
+        notify_emails=json.loads(row["notify_emails"] or "[]"),
     )
+
+
+def _clean_emails(emails: list[str] | None) -> list[str] | None:
+    """Trim and drop blank addresses; None (no change) passes straight through."""
+    if emails is None:
+        return None
+    return [e.strip() for e in emails if e.strip()]
 
 
 def _validate_prompt(request: Request, prompt_name: str | None) -> None:
     if prompt_name is None:
         return
-    prompts = request.app.state.config.prompts
-    if prompt_name not in prompts:
+    if request.app.state.db.get_prompt_by_name(prompt_name) is None:
+        available = [p["name"] for p in request.app.state.db.list_prompts()]
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown prompt {prompt_name!r} (available: {', '.join(prompts)})",
+            detail=f"Unknown prompt {prompt_name!r} (available: {', '.join(available)})",
         )
 
 
@@ -52,7 +61,7 @@ def add_channel(body: ChannelIn, request: Request) -> ChannelOut:
         )
     try:
         row = request.app.state.db.add_channel(
-            channel_input, body.label or label, body.prompt_name
+            channel_input, body.label or label, body.prompt_name, _clean_emails(body.notify_emails)
         )
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail=f"Channel {channel_input!r} already exists")
@@ -62,7 +71,11 @@ def add_channel(body: ChannelIn, request: Request) -> ChannelOut:
 @router.patch("/{channel_id}", response_model=ChannelOut)
 def update_channel(channel_id: int, body: ChannelPatch, request: Request) -> ChannelOut:
     _validate_prompt(request, body.prompt_name)
-    row = request.app.state.db.set_channel_prompt(channel_id, body.prompt_name)
+    row = request.app.state.db.update_channel(
+        channel_id,
+        prompt_name=body.prompt_name,
+        notify_emails=_clean_emails(body.notify_emails),
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     return _to_channel(row)
