@@ -25,15 +25,21 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
     state = request.app.state
     cfg = state.config
 
-    if state.db.get_channel(body.channel_id) is None:
+    channel = state.db.get_channel(body.channel_id)
+    if channel is None:
         raise HTTPException(status_code=404, detail="Channel not found")
-    prompt_name = body.prompt_name or cfg.active_prompt
-    if prompt_name not in cfg.prompts:
+    prompt = (
+        state.db.get_prompt_by_name(channel["prompt_name"]) if channel["prompt_name"] else None
+    )
+    if prompt is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown prompt {prompt_name!r} (available: {', '.join(cfg.prompts)})",
+            detail="This channel has no valid prompt configured — "
+            "choose a prompt for it in Manage channels.",
         )
-    prompt_text = cfg.prompts[prompt_name]
+    prompt_name = prompt["name"]
+    prompt_text = prompt["text"]
+    estimated_output_tokens = prompt["estimated_output_tokens"]
 
     prepared: dict[str, PreparedVideo] = {}
     items: list[EstimateItemOut] = []
@@ -106,7 +112,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
 
         # Auth/model errors would fail for every video — let the whole request
         # abort with a 502 via the SummarizerError handler.
-        estimate = state.summarizer.estimate(prompt_text, transcript, cfg.estimated_output_tokens)
+        estimate = state.summarizer.estimate(prompt_text, transcript, estimated_output_tokens)
         prepared[video_id] = PreparedVideo(video=video, transcript=transcript, estimate=estimate)
         items.append(
             EstimateItemOut(

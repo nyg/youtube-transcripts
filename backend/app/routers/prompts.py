@@ -1,0 +1,78 @@
+"""Prompt management — the summarization templates channels choose from.
+
+Prompts used to live in config.yaml; they are now a DB/UI-managed entity, each
+carrying its own `estimated_output_tokens`. A channel references a prompt by
+name, so a prompt cannot be deleted while a channel still uses it.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+
+from fastapi import APIRouter, HTTPException, Request
+
+from ..schemas import PromptIn, PromptOut, PromptPatch
+
+router = APIRouter(prefix="/api/prompts")
+
+
+def _to_prompt(row: sqlite3.Row) -> PromptOut:
+    return PromptOut(
+        id=row["id"],
+        name=row["name"],
+        text=row["text"],
+        estimated_output_tokens=row["estimated_output_tokens"],
+        created_at=row["created_at"],
+    )
+
+
+@router.get("", response_model=list[PromptOut])
+def list_prompts(request: Request) -> list[PromptOut]:
+    return [_to_prompt(row) for row in request.app.state.db.list_prompts()]
+
+
+@router.post("", response_model=PromptOut, status_code=201)
+def add_prompt(body: PromptIn, request: Request) -> PromptOut:
+    name = body.name.strip()
+    text = body.text.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Prompt name cannot be empty")
+    if not text:
+        raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
+    try:
+        row = request.app.state.db.add_prompt(name, text, body.estimated_output_tokens)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail=f"Prompt {name!r} already exists")
+    return _to_prompt(row)
+
+
+@router.patch("/{prompt_id}", response_model=PromptOut)
+def update_prompt(prompt_id: int, body: PromptPatch, request: Request) -> PromptOut:
+    text = body.text.strip() if body.text is not None else None
+    if text is not None and not text:
+        raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
+    row = request.app.state.db.update_prompt(
+        prompt_id,
+        text=text,
+        estimated_output_tokens=body.estimated_output_tokens,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return _to_prompt(row)
+
+
+@router.delete("/{prompt_id}", status_code=204)
+def delete_prompt(prompt_id: int, request: Request) -> None:
+    db = request.app.state.db
+    row = db.get_prompt(prompt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    users = db.channels_using_prompt(row["name"])
+    if users:
+        labels = ", ".join(u["label"] for u in users)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Prompt {row['name']!r} is in use by: {labels}. "
+            "Reassign those channels to another prompt before deleting it.",
+        )
+    db.delete_prompt(prompt_id)

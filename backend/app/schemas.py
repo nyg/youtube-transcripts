@@ -7,15 +7,37 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class PromptIn(BaseModel):
+    name: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    estimated_output_tokens: int = Field(default=2000, ge=1)
+
+
+class PromptPatch(BaseModel):
+    # Name is immutable (channels reference a prompt by name). Absent = no change.
+    text: str | None = Field(default=None, min_length=1)
+    estimated_output_tokens: int | None = Field(default=None, ge=1)
+
+
+class PromptOut(BaseModel):
+    id: int
+    name: str
+    text: str
+    estimated_output_tokens: int
+    created_at: str
+
+
 class ChannelIn(BaseModel):
     input: str
     label: str | None = None  # defaults to the channel name found on YouTube
-    prompt_name: str | None = None  # per-channel prompt; None = config's active_prompt
+    prompt_name: str  # required — the prompt (by name) used for this channel
+    notify_emails: list[str] = []  # digest recipients for the background monitor
 
 
 class ChannelPatch(BaseModel):
-    # None clears the override (falls back to active_prompt). Absent = no change.
+    # Absent = no change. For notify_emails, pass [] to clear all recipients.
     prompt_name: str | None = None
+    notify_emails: list[str] | None = None
 
 
 class ChannelOut(BaseModel):
@@ -24,6 +46,7 @@ class ChannelOut(BaseModel):
     label: str
     created_at: str
     prompt_name: str | None = None
+    notify_emails: list[str] = []
 
 
 class VideoOut(BaseModel):
@@ -43,7 +66,7 @@ class VideoListOut(BaseModel):
 class EstimateRequest(BaseModel):
     channel_id: int
     video_ids: list[str] = Field(min_length=1)
-    prompt_name: str | None = None  # defaults to the config's active_prompt
+    # The prompt is taken from the channel's chosen prompt — not requested here.
 
 
 class EstimateItemOut(BaseModel):
@@ -116,9 +139,6 @@ class SummaryDetailOut(SummaryOut):
 
 class MetaOut(BaseModel):
     model: str
-    prompts: list[str]
-    active_prompt: str
-    estimated_output_tokens: int
     max_videos_fetch: int
     monitoring_enabled: bool
     daily_budget_usd: float

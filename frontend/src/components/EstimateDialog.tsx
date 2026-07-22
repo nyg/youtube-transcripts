@@ -1,9 +1,9 @@
 import { Loader2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { toast } from "sonner"
 
 import { ApiError } from "@/api/client"
-import { useCreateEstimate, useCreateJob, useMeta } from "@/api/queries"
+import { useCreateEstimate, useCreateJob } from "@/api/queries"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,14 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -49,27 +41,27 @@ export function EstimateDialog({
   videoIds,
   onJobCreated,
 }: Props) {
-  const { data: meta } = useMeta()
-  const [promptName, setPromptName] = useState<string | null>(null)
   const estimate = useCreateEstimate()
   const createJob = useCreateJob()
 
-  const effectivePrompt = promptName ?? meta?.active_prompt
   const videoKey = videoIds.join(",")
 
-  // (Re-)estimate whenever the dialog opens or the prompt changes — the
-  // prompt is part of the input token count.
+  // (Re-)estimate whenever the dialog opens or the selection changes. The prompt
+  // is the channel's chosen prompt, resolved server-side — not selectable here.
   useEffect(() => {
-    if (!open || videoIds.length === 0 || !effectivePrompt) return
+    if (!open || videoIds.length === 0) return
     estimate.mutate(
-      { channel_id: channelId, video_ids: videoIds, prompt_name: effectivePrompt },
+      { channel_id: channelId, video_ids: videoIds },
       { onError: (error) => toast.error(error.message) },
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, videoKey, effectivePrompt, channelId])
+  }, [open, videoKey, channelId])
 
   const result = estimate.data
   const okItems = result?.items.filter((item) => item.status === "ok") ?? []
+  const assumedTokens =
+    okItems.find((item) => item.estimated_output_tokens != null)?.estimated_output_tokens ??
+    null
 
   const approve = () => {
     if (!result) return
@@ -78,11 +70,7 @@ export function EstimateDialog({
       onError: (error) => {
         if (error instanceof ApiError && error.status === 410) {
           toast.warning("Estimate expired — re-running it now.")
-          estimate.mutate({
-            channel_id: channelId,
-            video_ids: videoIds,
-            prompt_name: effectivePrompt,
-          })
+          estimate.mutate({ channel_id: channelId, video_ids: videoIds })
         } else {
           toast.error(error.message)
         }
@@ -101,34 +89,14 @@ export function EstimateDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-end gap-3">
-          <div className="space-y-1.5">
-            <Label>Prompt</Label>
-            <Select
-              value={effectivePrompt}
-              onValueChange={setPromptName}
-              disabled={estimate.isPending}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(meta?.prompts ?? []).map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {meta && (
-            <p className="text-muted-foreground pb-2 text-xs">
-              Model {meta.model}, assuming ~
-              {meta.estimated_output_tokens.toLocaleString()} output tokens per
-              video.
-            </p>
-          )}
-        </div>
+        {result && (
+          <p className="text-muted-foreground text-xs">
+            Model {result.model}, prompt “{result.prompt_name}”
+            {assumedTokens != null &&
+              `, assuming ~${assumedTokens.toLocaleString()} output tokens per video`}
+            .
+          </p>
+        )}
 
         {estimate.isPending && (
           <div className="text-muted-foreground flex items-center justify-center gap-2 py-10 text-sm">

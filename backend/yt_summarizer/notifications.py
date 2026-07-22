@@ -33,7 +33,7 @@ def send_email(
     if not api_key:
         raise NotificationError("RESEND_API_KEY is not set")
     if not recipients:
-        raise NotificationError("No recipients configured (monitoring.notify_emails)")
+        raise NotificationError("No recipients configured for this channel")
 
     try:
         resp = httpx.post(

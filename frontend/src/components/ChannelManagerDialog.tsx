@@ -1,14 +1,15 @@
 import { Loader2, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import {
   useAddChannel,
   useChannels,
   useDeleteChannel,
-  useMeta,
+  usePrompts,
   useUpdateChannel,
 } from "@/api/queries"
+import type { Channel, Prompt } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -27,10 +29,6 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 
-// Radix Select can't use "" as an item value, so the "use active_prompt" choice
-// gets a sentinel that maps to null (cleared override) on the wire.
-const DEFAULT_PROMPT = "__default__"
-
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -38,22 +36,31 @@ interface Props {
 
 export function ChannelManagerDialog({ open, onOpenChange }: Props) {
   const { data: channels } = useChannels()
-  const { data: meta } = useMeta()
+  const { data: prompts } = usePrompts()
   const addChannel = useAddChannel()
-  const deleteChannel = useDeleteChannel()
-  const updateChannel = useUpdateChannel()
   const [input, setInput] = useState("")
+  const [promptName, setPromptName] = useState("")
+
+  const noPrompts = !!prompts && prompts.length === 0
+
+  // Default the new-channel prompt to the first available one.
+  useEffect(() => {
+    if (!promptName && prompts && prompts.length > 0) setPromptName(prompts[0].name)
+  }, [prompts, promptName])
 
   const submit = () => {
     const value = input.trim()
-    if (!value) return
-    addChannel.mutate(value, {
-      onSuccess: (channel) => {
-        toast.success(`Added ${channel.label}`)
-        setInput("")
+    if (!value || !promptName) return
+    addChannel.mutate(
+      { input: value, promptName, notifyEmails: [] },
+      {
+        onSuccess: (channel) => {
+          toast.success(`Added ${channel.label}`)
+          setInput("")
+        },
+        onError: (error) => toast.error(error.message),
       },
-      onError: (error) => toast.error(error.message),
-    })
+    )
   }
 
   return (
@@ -62,20 +69,48 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Manage channels</DialogTitle>
           <DialogDescription>
-            Add a channel by @handle, channel ID (UC…), or URL. The channel is
-            verified on YouTube before being added.
+            Add a channel by @handle, channel ID (UC…), or URL, and pick the
+            prompt used to summarize it. The channel is verified on YouTube
+            before being added.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-2">
+        {noPrompts && (
+          <p className="text-muted-foreground text-sm">
+            Create a prompt first in “Manage prompts”, then add a channel and
+            assign it.
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
           <Input
+            className="min-w-48 flex-1"
             placeholder="@handle, UC… or URL"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
-            disabled={addChannel.isPending}
+            disabled={addChannel.isPending || noPrompts}
           />
-          <Button onClick={submit} disabled={addChannel.isPending || !input.trim()}>
+          <Select
+            value={promptName}
+            onValueChange={setPromptName}
+            disabled={addChannel.isPending || noPrompts}
+          >
+            <SelectTrigger className="h-8 w-40" aria-label="Prompt for new channel">
+              <SelectValue placeholder="Prompt" />
+            </SelectTrigger>
+            <SelectContent>
+              {(prompts ?? []).map((p) => (
+                <SelectItem key={p.id} value={p.name}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={submit}
+            disabled={addChannel.isPending || !input.trim() || !promptName}
+          >
             {addChannel.isPending && <Loader2 className="animate-spin" />}
             Add
           </Button>
@@ -83,64 +118,9 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
 
         <Separator />
 
-        <ul className="space-y-1">
+        <ul className="space-y-2">
           {(channels ?? []).map((channel) => (
-            <li
-              key={channel.id}
-              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{channel.label}</div>
-                <div className="text-muted-foreground truncate text-xs">
-                  {channel.input}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Select
-                  value={channel.prompt_name ?? DEFAULT_PROMPT}
-                  onValueChange={(v) =>
-                    updateChannel.mutate(
-                      {
-                        channelId: channel.id,
-                        promptName: v === DEFAULT_PROMPT ? null : v,
-                      },
-                      { onError: (error) => toast.error(error.message) },
-                    )
-                  }
-                >
-                  <SelectTrigger
-                    className="h-8 w-40"
-                    aria-label={`Prompt for ${channel.label}`}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEFAULT_PROMPT}>
-                      Default{meta ? ` (${meta.active_prompt})` : ""}
-                    </SelectItem>
-                    {(meta?.prompts ?? []).map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Delete ${channel.label}`}
-                  disabled={deleteChannel.isPending}
-                  onClick={() =>
-                    deleteChannel.mutate(channel.id, {
-                      onSuccess: () => toast.success(`Removed ${channel.label}`),
-                      onError: (error) => toast.error(error.message),
-                    })
-                  }
-                >
-                  <Trash2 className="text-destructive" />
-                </Button>
-              </div>
-            </li>
+            <ChannelRow key={channel.id} channel={channel} prompts={prompts ?? []} />
           ))}
           {channels && channels.length === 0 && (
             <li className="text-muted-foreground py-2 text-center text-sm">
@@ -150,5 +130,95 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
         </ul>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ChannelRow({ channel, prompts }: { channel: Channel; prompts: Prompt[] }) {
+  const deleteChannel = useDeleteChannel()
+  const updateChannel = useUpdateChannel()
+  const [emails, setEmails] = useState(channel.notify_emails.join(", "))
+
+  // Keep the local field in sync if the channel changes elsewhere.
+  useEffect(() => {
+    setEmails(channel.notify_emails.join(", "))
+  }, [channel.notify_emails])
+
+  const commitEmails = () => {
+    const parsed = emails
+      .split(/[,\n]/)
+      .map((e) => e.trim())
+      .filter(Boolean)
+    if (parsed.join(",") === channel.notify_emails.join(",")) return // no-op
+    updateChannel.mutate(
+      { channelId: channel.id, notifyEmails: parsed },
+      {
+        onSuccess: () => toast.success(`Updated recipients for ${channel.label}`),
+        onError: (error) => toast.error(error.message),
+      },
+    )
+  }
+
+  return (
+    <li className="space-y-2 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium">{channel.label}</div>
+          <div className="text-muted-foreground truncate text-xs">{channel.input}</div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Delete ${channel.label}`}
+          disabled={deleteChannel.isPending}
+          onClick={() =>
+            deleteChannel.mutate(channel.id, {
+              onSuccess: () => toast.success(`Removed ${channel.label}`),
+              onError: (error) => toast.error(error.message),
+            })
+          }
+        >
+          <Trash2 className="text-destructive" />
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Prompt</Label>
+          <Select
+            value={channel.prompt_name ?? undefined}
+            onValueChange={(v) =>
+              updateChannel.mutate(
+                { channelId: channel.id, promptName: v },
+                { onError: (error) => toast.error(error.message) },
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-40" aria-label={`Prompt for ${channel.label}`}>
+              <SelectValue placeholder="Select a prompt" />
+            </SelectTrigger>
+            <SelectContent>
+              {prompts.map((p) => (
+                <SelectItem key={p.id} value={p.name}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-w-48 flex-1 space-y-1">
+          <Label className="text-xs" htmlFor={`emails-${channel.id}`}>
+            Digest emails (comma-separated)
+          </Label>
+          <Input
+            id={`emails-${channel.id}`}
+            placeholder="you@example.com, friend@example.com"
+            value={emails}
+            onChange={(e) => setEmails(e.target.value)}
+            onBlur={commitEmails}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          />
+        </div>
+      </div>
+    </li>
   )
 }

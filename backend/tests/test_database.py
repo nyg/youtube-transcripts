@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -63,15 +64,79 @@ def test_add_channel_defaults_prompt_to_null(tmp_path):
     assert row["prompt_name"] is None
 
 
-def test_set_channel_prompt_updates_and_clears(tmp_path):
+def test_add_channel_stores_notify_emails_as_json(tmp_path):
+    db = Database(tmp_path / "v.db")
+    row = db.add_channel("@chan", "Chan", "p", ["a@example.com", "b@example.com"])
+    assert json.loads(row["notify_emails"]) == ["a@example.com", "b@example.com"]
+
+
+def test_add_channel_defaults_notify_emails_to_empty(tmp_path):
     db = Database(tmp_path / "v.db")
     row = db.add_channel("@chan", "Chan")
-    updated = db.set_channel_prompt(row["id"], "alt")
-    assert updated is not None and updated["prompt_name"] == "alt"
-    cleared = db.set_channel_prompt(row["id"], None)
-    assert cleared is not None and cleared["prompt_name"] is None
+    assert json.loads(row["notify_emails"]) == []
 
 
-def test_set_channel_prompt_missing_returns_none(tmp_path):
+def test_update_channel_sets_prompt_and_emails(tmp_path):
     db = Database(tmp_path / "v.db")
-    assert db.set_channel_prompt(999, "alt") is None
+    row = db.add_channel("@chan", "Chan")
+    updated = db.update_channel(row["id"], prompt_name="alt", notify_emails=["x@example.com"])
+    assert updated is not None
+    assert updated["prompt_name"] == "alt"
+    assert json.loads(updated["notify_emails"]) == ["x@example.com"]
+
+
+def test_update_channel_only_changes_provided_fields(tmp_path):
+    db = Database(tmp_path / "v.db")
+    row = db.add_channel("@chan", "Chan", "alt", ["keep@example.com"])
+    # Update only the prompt — emails must be untouched.
+    updated = db.update_channel(row["id"], prompt_name="other")
+    assert updated is not None
+    assert updated["prompt_name"] == "other"
+    assert json.loads(updated["notify_emails"]) == ["keep@example.com"]
+    # Clear the recipients with an explicit empty list.
+    cleared = db.update_channel(row["id"], notify_emails=[])
+    assert cleared is not None and json.loads(cleared["notify_emails"]) == []
+    assert cleared["prompt_name"] == "other"
+
+
+def test_update_channel_missing_returns_none(tmp_path):
+    db = Database(tmp_path / "v.db")
+    assert db.update_channel(999, prompt_name="alt") is None
+
+
+def test_prompt_crud_roundtrip(tmp_path):
+    db = Database(tmp_path / "v.db")
+    row = db.add_prompt("summary", "Summarize this.", 1500)
+    assert row["name"] == "summary"
+    assert row["text"] == "Summarize this."
+    assert row["estimated_output_tokens"] == 1500
+
+    fetched = db.get_prompt_by_name("summary")
+    assert fetched is not None and fetched["id"] == row["id"]
+    assert [p["name"] for p in db.list_prompts()] == ["summary"]
+
+    updated = db.update_prompt(row["id"], text="New text.", estimated_output_tokens=3000)
+    assert updated is not None
+    assert updated["text"] == "New text."
+    assert updated["estimated_output_tokens"] == 3000
+
+    assert db.delete_prompt(row["id"]) is True
+    assert db.get_prompt(row["id"]) is None
+
+
+def test_add_prompt_duplicate_name_raises(tmp_path):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("dup", "a", 2000)
+    with pytest.raises(sqlite3.IntegrityError):
+        db.add_prompt("dup", "b", 2000)
+
+
+def test_channels_using_prompt_reports_references(tmp_path):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("shared", "sys", 2000)
+    db.add_channel("@a", "A", "shared")
+    db.add_channel("@b", "B", "shared")
+    db.add_channel("@c", "C", "other")
+    users = db.channels_using_prompt("shared")
+    assert {u["label"] for u in users} == {"A", "B"}
+    assert db.channels_using_prompt("nobody") == []

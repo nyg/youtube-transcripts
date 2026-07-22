@@ -1,4 +1,4 @@
-"""ChannelMonitor: budget gate, age filter, mutex, and email digest."""
+"""ChannelMonitor: budget gate, age filter, mutex, per-channel prompt + email."""
 
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ def _make_config(
     max_videos_check: int = 5,
     max_age_hours: int = 0,
     daily_budget_usd: float = 1.0,
-    notify_emails: tuple[str, ...] = (),
 ) -> Config:
     mon = MonitorConfig(
         enabled=enabled,
@@ -55,16 +54,21 @@ def _make_config(
         max_age_hours=max_age_hours,
         daily_budget_usd=daily_budget_usd,
         resend_from="from@example.com",
-        notify_emails=notify_emails,
         subject_prefix="New video summaries",
     )
     return Config(
-        channel="", max_videos_fetch=25, transcript_languages=("en",),
+        max_videos_fetch=25, transcript_languages=("en",),
         youtube_request_interval=0.0, cookies_file=None, model="claude-test",
-        max_output_tokens=8192, estimated_output_tokens=2000, pricing={},
-        active_prompt="default", prompts={"default": "sys", "alt": "alt sys"},
+        max_output_tokens=8192, pricing={},
         database=db_path, monitor=mon,
     )
+
+
+def _seed_channel(db: Database, *, prompt="default", text="sys", recipients=None):
+    """Add a prompt (once) and a channel referencing it. Prompts now live in the DB."""
+    if db.get_prompt_by_name(prompt) is None:
+        db.add_prompt(prompt, text, 2000)
+    return db.add_channel("@chan", "Chan", prompt, recipients or [])
 
 
 def _video(vid: str, published_at: str | None) -> Video:
@@ -80,7 +84,7 @@ def _patch_youtube(monkeypatch, videos: list[Video]) -> None:
 
 def test_budget_gate_defers_remaining(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None), _video("v2", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=1.00, max_age_hours=0)
     summarizer = FakeSummarizer(worst=0.60, actual=0.50)
@@ -97,7 +101,7 @@ def test_budget_gate_defers_remaining(tmp_path, monkeypatch):
 
 def test_no_budget_processes_all(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None), _video("v2", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0, max_age_hours=0)  # 0 = unlimited
 
@@ -110,7 +114,7 @@ def test_no_budget_processes_all(tmp_path, monkeypatch):
 
 def test_deferred_videos_processed_on_next_cycle_with_headroom(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None)])
     # First cycle: tiny budget only fits one video.
     cfg_small = _make_config(tmp_path / "v.db", daily_budget_usd=0.60, max_age_hours=0)
@@ -126,7 +130,7 @@ def test_deferred_videos_processed_on_next_cycle_with_headroom(tmp_path, monkeyp
 
 def test_age_filter_skips_old_and_undated(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db)
     now = datetime.now(timezone.utc)
     recent = _video("recent", (now - timedelta(hours=1)).isoformat(timespec="seconds"))
     old = _video("old", (now - timedelta(hours=100)).isoformat(timespec="seconds"))
@@ -141,7 +145,7 @@ def test_age_filter_skips_old_and_undated(tmp_path, monkeypatch):
 
 def test_skips_cycle_when_slot_reserved(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None)])
     jobs = JobRegistry()
     assert jobs.reserve_for_monitor() is True  # simulate a running job
@@ -155,7 +159,8 @@ def test_skips_cycle_when_slot_reserved(tmp_path, monkeypatch):
 
 def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan", "alt")  # per-channel override
+    db.add_prompt("alt", "alt sys", 2000)
+    db.add_channel("@chan", "Chan", "alt")
     _patch_youtube(monkeypatch, [_video("v0", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
 
@@ -168,15 +173,26 @@ def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
 
     ChannelMonitor(cfg, db, RecordingSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
 
-    assert seen["prompt"] == "alt sys"  # channel's "alt" prompt text, not active_prompt
+    assert seen["prompt"] == "alt sys"  # the channel's "alt" prompt text
+
+
+def test_channel_without_prompt_is_skipped(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_channel("@chan", "Chan")  # no prompt assigned
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+
+    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+
+    assert result.summarized == 0
+    assert db.processed_ids() == set()
 
 
 def test_email_sent_with_summaries(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db, recipients=["me@example.com"])
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0,
-                       notify_emails=("me@example.com",))
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     captured: dict[str, object] = {}
@@ -188,16 +204,54 @@ def test_email_sent_with_summaries(tmp_path, monkeypatch):
 
     ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
 
-    assert captured["recipients"] == ("me@example.com",)
+    assert captured["recipients"] == ["me@example.com"]
     assert "A summary" in captured["html"]  # type: ignore[operator]
     assert captured["sender"] == "from@example.com"
 
 
+def test_no_email_when_channel_has_no_recipients(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    _seed_channel(db, recipients=[])  # summarized, but nobody to email
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    sends: list[dict] = []
+    monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
+
+    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+
+    assert result.summarized == 1
+    assert sends == []
+
+
+def test_digest_grouped_per_channel(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("default", "sys", 2000)
+    db.add_channel("@a", "A", "default", ["a@example.com"])
+    db.add_channel("@b", "B", "default", ["b@example.com"])
+    per_channel = {"@a": [_video("va", None)], "@b": [_video("vb", None)]}
+    monkeypatch.setattr(youtube_client, "list_recent_videos", lambda inp, n: per_channel[inp])
+    monkeypatch.setattr(youtube_client, "fetch_video_details", lambda v: (v, {"info": True}))
+    monkeypatch.setattr(transcripts, "fetch_transcript", lambda info, vid, langs: "transcript")
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    sends: list[dict] = []
+    monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
+
+    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+
+    # One digest per channel, each to its own recipients.
+    assert len(sends) == 2
+    assert {s["recipients"][0] for s in sends} == {"a@example.com", "b@example.com"}
+
+
 def test_no_email_when_nothing_new(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_channel("@chan", "Chan")
+    _seed_channel(db, recipients=["me@example.com"])
     _patch_youtube(monkeypatch, [])  # no videos
-    cfg = _make_config(tmp_path / "v.db", notify_emails=("me@example.com",))
+    cfg = _make_config(tmp_path / "v.db")
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     calls = []

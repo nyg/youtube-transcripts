@@ -4,7 +4,7 @@ Runs inside the FastAPI process as a daemon thread (started/stopped in the app
 lifespan). One "cycle" per interval:
 
   discover new videos per channel  ->  budget-gate  ->  summarize  ->  save
-  ->  email one digest of everything new.
+  ->  email one digest per channel to that channel's recipients.
 
 Unattended, so there is no per-run cost approval — `daily_budget_usd` is the
 guard. A video is only summarized if its worst-case cost keeps today's UTC spend
@@ -16,6 +16,7 @@ user-initiated jobs via JobRegistry, so the two never run concurrently.
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import threading
@@ -35,7 +36,9 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class _Summarized:
+    channel_id: int | None
     channel_label: str
+    recipients: list[str]
     video: Video
     text: str
     cost_usd: float | None
@@ -132,14 +135,21 @@ class ChannelMonitor:
         for channel in self._db.list_channels():
             if result.budget_hit:
                 break
-            prompt_name = channel["prompt_name"] or cfg.active_prompt
-            if prompt_name not in cfg.prompts:
+            prompt_row = (
+                self._db.get_prompt_by_name(channel["prompt_name"])
+                if channel["prompt_name"]
+                else None
+            )
+            if prompt_row is None:
                 log.warning(
-                    "Monitor: channel %r has unknown prompt %r — using active_prompt %r",
-                    channel["label"], prompt_name, cfg.active_prompt,
+                    "Monitor: channel %r has no valid prompt (%r) — skipping",
+                    channel["label"], channel["prompt_name"],
                 )
-                prompt_name = cfg.active_prompt
-            prompt_text = cfg.prompts[prompt_name]
+                continue
+            prompt_name = prompt_row["name"]
+            prompt_text = prompt_row["text"]
+            prompt_output_tokens = prompt_row["estimated_output_tokens"]
+            recipients = json.loads(channel["notify_emails"] or "[]")
 
             try:
                 videos = youtube_client.list_recent_videos(
@@ -176,7 +186,7 @@ class ChannelMonitor:
 
                 # Budget pre-check at worst case (full max_output_tokens).
                 est = self._summarizer.estimate(
-                    prompt_text, transcript, cfg.estimated_output_tokens
+                    prompt_text, transcript, prompt_output_tokens
                 )
                 worst = self._summarizer.cost(est.input_tokens, self._summarizer.max_output_tokens)
                 if budget > 0 and worst is not None and spent + worst > budget:
@@ -213,7 +223,9 @@ class ChannelMonitor:
                 spent += summary.cost_usd or 0.0
                 result.summaries.append(
                     _Summarized(
+                        channel_id=channel["id"],
                         channel_label=channel["label"],
+                        recipients=recipients,
                         video=video,
                         text=summary.text,
                         cost_usd=summary.cost_usd,
@@ -252,29 +264,45 @@ class ChannelMonitor:
     def _maybe_send_email(self, result: CycleResult, budget: float) -> None:
         mon = self._config.monitor
         api_key = os.getenv("RESEND_API_KEY", "")
-        if not api_key or not mon.notify_emails:
+        if not api_key:
             log.warning(
-                "Monitor: %d new summaries but no email sent "
-                "(set RESEND_API_KEY and monitoring.notify_emails)",
+                "Monitor: %d new summaries but RESEND_API_KEY is not set — no email sent",
                 result.summarized,
             )
             return
-        subject = f"{mon.subject_prefix} ({result.summarized})"
-        body = self._build_html(result, budget)
-        try:
-            notifications.send_email(
-                api_key=api_key,
-                sender=mon.resend_from,
-                recipients=mon.notify_emails,
-                subject=subject,
-                html=body,
-            )
-        except notifications.NotificationError as exc:
-            log.error("Monitor: could not send digest email: %s", exc)
 
-    def _build_html(self, result: CycleResult, budget: float) -> str:
-        blocks: list[str] = []
+        # One digest per channel, sent to that channel's own recipients.
+        by_channel: dict[int | None, list[_Summarized]] = {}
         for s in result.summaries:
+            by_channel.setdefault(s.channel_id, []).append(s)
+
+        for summaries in by_channel.values():
+            label = summaries[0].channel_label
+            recipients = summaries[0].recipients
+            if not recipients:
+                log.info(
+                    "Monitor: %d new summaries for %r but no recipients configured — not emailing",
+                    len(summaries), label,
+                )
+                continue
+            subject = f"{mon.subject_prefix} — {label} ({len(summaries)})"
+            body = self._build_html(summaries, result, budget)
+            try:
+                notifications.send_email(
+                    api_key=api_key,
+                    sender=mon.resend_from,
+                    recipients=recipients,
+                    subject=subject,
+                    html=body,
+                )
+            except notifications.NotificationError as exc:
+                log.error("Monitor: could not send digest email for %r: %s", label, exc)
+
+    def _build_html(
+        self, summaries: list[_Summarized], result: CycleResult, budget: float
+    ) -> str:
+        blocks: list[str] = []
+        for s in summaries:
             title = html.escape(s.video.title)
             url = html.escape(s.video.url, quote=True)
             channel = html.escape(s.channel_label)
