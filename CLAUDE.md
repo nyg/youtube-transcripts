@@ -27,6 +27,8 @@ backend/   FastAPI + uvicorn                               (API server :8000)
                ├── youtube_client.py  yt-dlp listing, RSS date enrichment
                ├── transcripts.py  caption track selection + json3 parsing
                ├── claude_client.py token counting, estimation, summarization
+               ├── markdown_email.py  Markdown -> inline-styled HTML for digests
+               ├── notifications.py   Resend transport
                └── database.py     SQLite persistence
 ```
 
@@ -86,6 +88,8 @@ timezone-aware **UTC ISO 8601** (`youtube_client._utc_iso`, DB `*_at` columns).
 The frontend renders in the viewer's locale/timezone via `src/lib/datetime.ts`
 (`formatDateTime` / `formatDate` / `formatPublished`). Never format dates
 server-side for display, and never render a bare timestamp string in a component.
+The **only** exception is the monitor's digest email (`monitor._email_date`):
+there is no client to render it, so it formats a readable UTC stamp server-side.
 
 **Process-tab "real dates."** yt-dlp's cheap flat channel listing has **no**
 exact dates — only day-level approximations (via the `approximate_date`
@@ -117,6 +121,15 @@ for known videos (no YouTube request), and `Database.save_summary` upserts
 (`youtube_client._throttle`, `youtube_request_interval` in config). Transcript
 fetch retries once after a backoff, then skips the rest of the batch to avoid
 digging deeper. Don't parallelize YouTube requests.
+
+**The digest email is HTML, and summaries are Markdown.** Claude returns
+Markdown, so the monitor runs it through `yt_summarizer/markdown_email.py`
+(`render`) instead of escaping it verbatim — otherwise `**bold**` reaches the
+inbox as literal asterisks. That module escapes the text **first** and only then
+turns the supported constructs back into tags, so raw HTML in model output can
+never reach a recipient; keep that ordering if you extend it. Mail clients drop
+`<style>` blocks, so every tag it emits carries an inline `style`. Subjects name
+the video when a digest holds exactly one (`monitor._build_subject`).
 
 **Jobs & estimates are in-memory.** Only one summarization job runs at a time
 (`JobRegistry`). Estimates are stored in memory and consumed on approval

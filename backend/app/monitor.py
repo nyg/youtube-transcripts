@@ -23,7 +23,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from yt_summarizer import notifications, transcripts, youtube_client
+from yt_summarizer import markdown_email, notifications, transcripts, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
 from yt_summarizer.config import Config
 from yt_summarizer.database import Database
@@ -32,6 +32,9 @@ from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 from .jobs import JobRegistry
 
 log = logging.getLogger(__name__)
+
+# Mail clients truncate long subjects anyway; keep the video title from running away.
+_MAX_SUBJECT_TITLE = 90
 
 
 @dataclass
@@ -58,6 +61,23 @@ def _utc_midnight_iso() -> str:
     """Start of the current UTC day, matching the format stored in processed_at."""
     now = datetime.now(timezone.utc)
     return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
+
+
+def _email_date(iso: str) -> str:
+    """Format a stored UTC timestamp for the digest.
+
+    The one place we format a date server-side: an email has no client to render
+    it in the reader's locale, and a bare ISO string reads terribly in an inbox.
+    """
+    if not iso:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
 
 
 class ChannelMonitor:
@@ -285,7 +305,7 @@ class ChannelMonitor:
                     len(summaries), label,
                 )
                 continue
-            subject = f"{mon.subject_prefix} — {label} ({len(summaries)})"
+            subject = self._build_subject(label, summaries)
             body = self._build_html(summaries, result, budget)
             try:
                 notifications.send_email(
@@ -298,6 +318,17 @@ class ChannelMonitor:
             except notifications.NotificationError as exc:
                 log.error("Monitor: could not send digest email for %r: %s", label, exc)
 
+    def _build_subject(self, label: str, summaries: list[_Summarized]) -> str:
+        """One video → name it in the subject; several → fall back to a count."""
+        prefix = self._config.monitor.subject_prefix
+        if len(summaries) != 1:
+            return f"{prefix} — {label} ({len(summaries)})"
+        # Collapse whitespace: a newline here would be a mail-header break.
+        title = " ".join(summaries[0].video.title.split())
+        if len(title) > _MAX_SUBJECT_TITLE:
+            title = title[: _MAX_SUBJECT_TITLE - 1].rstrip() + "…"
+        return f"{prefix} — {label}: {title}"
+
     def _build_html(
         self, summaries: list[_Summarized], result: CycleResult, budget: float
     ) -> str:
@@ -306,15 +337,15 @@ class ChannelMonitor:
             title = html.escape(s.video.title)
             url = html.escape(s.video.url, quote=True)
             channel = html.escape(s.channel_label)
-            date = html.escape(s.video.published_at or "")
+            date = html.escape(_email_date(s.video.published_at or ""))
             cost = f"${s.cost_usd:.4f}" if s.cost_usd is not None else "n/a"
-            text = html.escape(s.text).replace("\n", "<br>")
+            text = markdown_email.render(s.text)
             blocks.append(
                 f'<div style="margin-bottom:28px">'
                 f'<div style="font-size:12px;color:#666">{channel} &middot; {date} &middot; {cost}</div>'
-                f'<h2 style="margin:4px 0;font-size:18px">'
+                f'<h2 style="margin:4px 0 10px;font-size:18px">'
                 f'<a href="{url}" style="color:#0b57d0;text-decoration:none">{title}</a></h2>'
-                f'<div style="line-height:1.5;white-space:normal">{text}</div>'
+                f'<div style="line-height:1.5">{text}</div>'
                 f"</div>"
             )
         footer = f'<p style="font-size:12px;color:#666">Spent today: ${result.spent_today:.4f}'
