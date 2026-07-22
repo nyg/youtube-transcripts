@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,9 +22,10 @@ class FakeSummarizer:
 
     max_output_tokens = 8192
 
-    def __init__(self, worst: float, actual: float) -> None:
+    def __init__(self, worst: float, actual: float, text: str = "A summary") -> None:
         self._worst = worst
         self._actual = actual
+        self._text = text
         self.summarize_calls = 0
 
     def estimate(self, prompt: str, transcript: str, estimated_output_tokens: int) -> CostEstimate:
@@ -35,7 +37,7 @@ class FakeSummarizer:
 
     def summarize(self, prompt: str, transcript: str) -> SummaryResult:
         self.summarize_calls += 1
-        return SummaryResult(text="A summary", tokens_input=1000, tokens_output=500,
+        return SummaryResult(text=self._text, tokens_input=1000, tokens_output=500,
                              cost_usd=self._actual, stop_reason="end_turn")
 
 
@@ -245,6 +247,71 @@ def test_digest_grouped_per_channel(tmp_path, monkeypatch):
     # One digest per channel, each to its own recipients.
     assert len(sends) == 2
     assert {s["recipients"][0] for s in sends} == {"a@example.com", "b@example.com"}
+
+
+def _capture_send(tmp_path, monkeypatch, *, videos, text="A summary") -> list[dict]:
+    """Run one cycle with email enabled and return the send_email kwargs."""
+    db = Database(tmp_path / "v.db")
+    _seed_channel(db, recipients=["me@example.com"])
+    _patch_youtube(monkeypatch, videos)
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    sends: list[dict] = []
+    monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
+    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1, text), JobRegistry()).run_cycle()
+    return sends
+
+
+def test_subject_names_the_video_when_there_is_only_one(tmp_path, monkeypatch):
+    sends = _capture_send(tmp_path, monkeypatch, videos=[_video("v0", None)])
+
+    assert sends[0]["subject"] == "New video summaries — Chan: Title v0"
+
+
+def test_subject_falls_back_to_a_count_for_several_videos(tmp_path, monkeypatch):
+    sends = _capture_send(
+        tmp_path, monkeypatch, videos=[_video("v0", None), _video("v1", None)]
+    )
+
+    assert sends[0]["subject"] == "New video summaries — Chan (2)"
+
+
+def test_long_subject_title_is_truncated_and_newlines_collapsed(tmp_path, monkeypatch):
+    video = replace(
+        _video("v0", None),
+        title="BITCOIN: MY PLAN\nFOR THE CYCLE " + "very long " * 20,
+    )
+    sends = _capture_send(tmp_path, monkeypatch, videos=[video])
+
+    subject = sends[0]["subject"]
+    assert "\n" not in subject
+    assert subject.startswith("New video summaries — Chan: BITCOIN: MY PLAN FOR THE CYCLE ")
+    assert subject.endswith("…")
+    assert len(subject) < 140
+
+
+def test_markdown_in_the_summary_is_rendered_as_html(tmp_path, monkeypatch):
+    sends = _capture_send(
+        tmp_path,
+        monkeypatch,
+        videos=[_video("v0", None)],
+        text="**Bitcoin Market Position:** bullish\n\n- DCA is fantastic",
+    )
+
+    html = sends[0]["html"]
+    assert "<strong>Bitcoin Market Position:</strong>" in html
+    assert "<li" in html
+    assert "**" not in html
+
+
+def test_published_date_is_human_readable(tmp_path, monkeypatch):
+    sends = _capture_send(
+        tmp_path, monkeypatch, videos=[_video("v0", "2026-07-22T09:25:00+00:00")]
+    )
+
+    assert "22 Jul 2026, 09:25 UTC" in sends[0]["html"]
+    assert "2026-07-22T09:25:00+00:00" not in sends[0]["html"]
 
 
 def test_no_email_when_nothing_new(tmp_path, monkeypatch):
