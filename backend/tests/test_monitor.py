@@ -48,10 +48,12 @@ def _make_config(
     max_videos_check: int = 5,
     max_age_hours: int = 0,
     daily_budget_usd: float = 1.0,
+    schedule: str = "0 * * * *",
 ) -> Config:
     mon = MonitorConfig(
         enabled=enabled,
-        interval_minutes=60,
+        schedule=schedule,
+        run_on_start=True,
         max_videos_check=max_videos_check,
         max_age_hours=max_age_hours,
         daily_budget_usd=daily_budget_usd,
@@ -312,6 +314,42 @@ def test_published_date_is_human_readable(tmp_path, monkeypatch):
 
     assert "22 Jul 2026, 09:25 UTC" in sends[0]["html"]
     assert "2026-07-22T09:25:00+00:00" not in sends[0]["html"]
+
+
+def _monitor(tmp_path, schedule: str) -> ChannelMonitor:
+    cfg = _make_config(tmp_path / "v.db", schedule=schedule)
+    return ChannelMonitor(cfg, Database(tmp_path / "v.db"), FakeSummarizer(0.1, 0.1), JobRegistry())
+
+
+@pytest.mark.parametrize(
+    "schedule,expected_hour,expected_minute",
+    [
+        ("0 * * * *", 11, 0),      # top of the next hour
+        ("*/15 * * * *", 10, 30),  # next quarter
+        ("0 8 * * *", 8, 0),       # tomorrow morning (see hour assertion below)
+    ],
+)
+def test_next_run_snaps_to_the_schedule(tmp_path, schedule, expected_hour, expected_minute):
+    """The fire time comes from the wall clock, not from when the process started."""
+    tz = timezone(timedelta(hours=2))
+    now = datetime(2026, 7, 24, 10, 17, 42, tzinfo=tz)
+
+    nxt = _monitor(tmp_path, schedule)._next_run(now)
+
+    assert (nxt.hour, nxt.minute, nxt.second) == (expected_hour, expected_minute, 0)
+    assert nxt > now
+    assert nxt.utcoffset() == now.utcoffset()  # stays in local time
+
+
+def test_next_run_is_stable_across_restarts(tmp_path):
+    """Two different start times inside the same hour yield the same next fire."""
+    tz = timezone(timedelta(hours=2))
+    monitor = _monitor(tmp_path, "0 * * * *")
+
+    early = monitor._next_run(datetime(2026, 7, 24, 10, 1, tzinfo=tz))
+    late = monitor._next_run(datetime(2026, 7, 24, 10, 59, tzinfo=tz))
+
+    assert early == late == datetime(2026, 7, 24, 11, 0, tzinfo=tz)
 
 
 def test_no_email_when_nothing_new(tmp_path, monkeypatch):

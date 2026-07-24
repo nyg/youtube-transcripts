@@ -44,14 +44,16 @@ make install              # creates .venv, installs backend + frontend deps
 cp backend/.env.example backend/.env    # then put your ANTHROPIC_API_KEY in it
 ```
 
-Optionally edit `backend/config.yaml` — the `channel` there is seeded into the
-database on first start; after that, channels are managed entirely in the UI.
+On its first start the backend creates `~/.config/yt-summarizer/config.yaml`
+from the `backend/config.example.yaml` template (honouring `$XDG_CONFIG_HOME`)
+and logs where it put it. That copy is the live config — edit it there; the
+checkout is never written to and your settings never show up in `git status`.
+Channels and prompts are managed in the UI, not in the config file.
 
-The bundled `backend/config.yaml` is used out of the box. To keep your own
-config outside the checkout, copy it to `~/.config/yt-summarizer/config.yaml`
-(honouring `$XDG_CONFIG_HOME`); it takes precedence when present. Secrets go in
-a `.env` next to whichever config file is used. `$YT_SUMMARIZER_CONFIG` points
-directly at a config file and overrides both.
+Secrets go in a `.env` next to the config file
+(`~/.config/yt-summarizer/.env`); a `backend/.env` is still picked up as a
+fallback. `$YT_SUMMARIZER_CONFIG` points directly at a config file and
+overrides everything (no copy is made).
 
 ## Running
 
@@ -81,23 +83,32 @@ make frontend   # Vite on http://localhost:5173 — open this in your browser
 6. **Browse summaries** — the *Summaries* tab renders each summary's Markdown,
    with model/prompt/cost/token badges and the stored transcript on demand.
 
-## Configuration (`backend/config.yaml`)
+## Configuration (`~/.config/yt-summarizer/config.yaml`)
+
+Channels, prompts and digest recipients live in the database and are edited in
+the UI. The config file holds global settings only:
 
 | Key | Purpose |
 | --- | --- |
-| `channel` | Seed channel, imported into the DB on first start only |
 | `max_videos_fetch` | How many recent videos/lives to list |
 | `transcript_languages` | Preferred transcript languages, in order; falls back to the original-language auto captions |
+| `youtube_request_interval` | Minimum seconds between YouTube requests |
+| `cookies_file` | Optional Netscape-format cookies file for higher rate limits |
 | `model` | Claude model ID (default `claude-opus-4-8`) |
 | `max_output_tokens` | Hard cap on response length |
-| `estimated_output_tokens` | Assumed output size for the *pre-call* cost estimate |
 | `pricing` | $/1M input & output tokens per model — used for cost math |
-| `active_prompt` / `prompts` | Named system prompts; `active_prompt` is the default, selectable per run in the UI |
+| `monitoring.enabled` | Turn the background monitor on |
+| `monitoring.schedule` | 5-field cron expression for when to check, in the **server's local time** (default `"0 * * * *"` — every hour on the hour) |
+| `monitoring.run_on_start` | Also run one catch-up cycle at startup (default `true`) |
+| `monitoring.max_videos_check` / `max_age_hours` | How far back each cycle looks |
+| `monitoring.daily_budget_usd` | Hard spend cap per UTC day across all channels |
+| `monitoring.resend_from` / `subject_prefix` | Digest sender address and subject prefix |
 | `database` | SQLite file path. Unset (default) → `$XDG_DATA_HOME/yt-summarizer/videos.db` (i.e. `~/.local/share/yt-summarizer/videos.db`). An absolute path is used as-is; a relative path resolves under the XDG data dir |
 
-Secrets live in a `.env` next to the config file (`backend/.env` for the
-bundled config; `~/.config/yt-summarizer/.env` for an XDG one) — only
-`ANTHROPIC_API_KEY` — never in `config.yaml`.
+Secrets live in a `.env` next to the config file
+(`~/.config/yt-summarizer/.env`, or `backend/.env` as a fallback) —
+`ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
+`config.yaml`.
 
 ## Data & migrating
 

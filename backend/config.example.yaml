@@ -37,10 +37,10 @@ pricing:
 # ---------------------------------------------------------------------------
 # Automatic monitoring (optional)
 # ---------------------------------------------------------------------------
-# When enabled, a background scheduler inside the server checks every
-# `interval_minutes` for newly published videos on your registered channels,
-# summarizes each with that channel's chosen prompt, and emails a per-channel
-# digest (to that channel's recipients) via the Resend API.
+# When enabled, a background scheduler inside the server checks on the `schedule`
+# below for newly published videos on your registered channels, summarizes each
+# with that channel's chosen prompt, and emails a per-channel digest (to that
+# channel's recipients) via the Resend API.
 #
 # There is no per-run approval when this runs unattended, so `daily_budget_usd`
 # is the spend guard: a video is only summarized if it keeps the day's total
@@ -55,7 +55,19 @@ pricing:
 # Run the server with a single uvicorn worker so only one scheduler exists.
 monitoring:
   enabled: false
-  interval_minutes: 60
+
+  # When to check, as a 5-field cron expression: minute hour day-of-month month
+  # day-of-week — evaluated in the SERVER'S LOCAL TIME, not UTC. Examples:
+  #   "0 * * * *"      every hour, on the hour   (default)
+  #   "*/15 * * * *"   every 15 minutes, on the quarter
+  #   "0 8,20 * * *"   at 08:00 and 20:00
+  #   "30 7 * * 1-5"   at 07:30 on weekdays
+  schedule: "0 * * * *"
+
+  # Also run one catch-up cycle immediately at startup, for videos published
+  # while the server was down. Set to false to only ever run on the schedule.
+  run_on_start: true
+
   max_videos_check: 5      # recent videos scanned per channel per cycle
   max_age_hours: 48        # ignore videos older than this (0 = no age limit)
   daily_budget_usd: 1.00   # hard cap across all channels (0 = unlimited)

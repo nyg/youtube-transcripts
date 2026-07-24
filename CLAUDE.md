@@ -60,17 +60,30 @@ a scratch dir and seed a test `videos.db` (see `yt_summarizer/database.py`).
 
 ## Conventions & gotchas (read before touching these areas)
 
-**Paths are XDG-based** (`yt_summarizer/paths.py`). Config resolves from
-`$XDG_CONFIG_HOME/yt-summarizer/config.yaml` (bundled `backend/config.yaml` is
-the fallback; `$YT_SUMMARIZER_CONFIG` overrides). Database defaults to
-`$XDG_DATA_HOME/yt-summarizer/videos.db`. Don't hardcode a repo-relative
-database path.
+**Paths are XDG-based** (`yt_summarizer/paths.py`). `ensure_config()` resolves
+the config to `$XDG_CONFIG_HOME/yt-summarizer/config.yaml`, **creating it on
+first run** by copying `backend/config.example.yaml` (or a leftover
+`backend/config.yaml` from an older install, which holds real settings). The
+checkout is never the live config — only the template is tracked, and
+`backend/config.yaml` is gitignored. `$YT_SUMMARIZER_CONFIG` overrides and is
+never copied to; a failed copy falls back to reading the template in place.
+Database defaults to `$XDG_DATA_HOME/yt-summarizer/videos.db`. Don't hardcode a
+repo-relative database path.
+
+**The monitor is cron-scheduled in local time.** `monitoring.schedule` is a
+5-field cron expression (croniter); `app/monitor.py` recomputes the next fire
+time each iteration off `datetime.now().astimezone()`, so timing is wall-clock
+stable and restart-independent. This is the one place local time is
+authoritative — see the UTC rule below, which governs stored/served timestamps.
+`monitoring.run_on_start` (default true) additionally runs one catch-up cycle at
+startup. The legacy `interval_minutes` key is rejected with a `ConfigError`
+rather than silently ignored.
 
 **Channels and prompts live in the DB, not config.** Both are UI-managed CRUD
 entities (`channels` and `prompts` tables; `routers/channels.py` /
 `routers/prompts.py`; React `ChannelManagerDialog` / `PromptManagerDialog`).
 `config.yaml` holds only global settings (model, pricing, YouTube pacing,
-monitoring cadence/budget). A **prompt** carries its own text and
+monitoring schedule/budget). A **prompt** carries its own text and
 `estimated_output_tokens` (the assumed output length used for cost estimates). A
 **channel** references exactly one prompt by name (`channels.prompt_name`,
 validated against the `prompts` table) and carries its own digest recipients

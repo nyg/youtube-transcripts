@@ -6,9 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from croniter import croniter
 from dotenv import load_dotenv
 
 from . import paths
+
+# Top of every hour, in the server's local time.
+DEFAULT_SCHEDULE = "0 * * * *"
 
 
 class ConfigError(Exception):
@@ -25,10 +29,11 @@ class ModelPricing:
 
 @dataclass(frozen=True)
 class MonitorConfig:
-    """Settings for the hourly background monitor (see monitor.py)."""
+    """Settings for the background monitor (see monitor.py)."""
 
     enabled: bool
-    interval_minutes: int
+    schedule: str  # 5-field cron expression, evaluated in the server's local time
+    run_on_start: bool  # also run one catch-up cycle when the server starts
     max_videos_check: int
     max_age_hours: int  # only auto-process videos newer than this; 0 = no limit
     daily_budget_usd: float  # hard cap across all channels; 0 = unlimited
@@ -93,18 +98,26 @@ def load_config(path: Path) -> Config:
 def _parse_monitor(raw: object) -> MonitorConfig:
     if not isinstance(raw, dict):
         raise ConfigError("'monitoring' must be a mapping")
+    if "interval_minutes" in raw and "schedule" not in raw:
+        # Fail loudly rather than silently changing someone's cadence.
+        raise ConfigError(
+            "monitoring.interval_minutes was replaced by monitoring.schedule, a cron "
+            "expression in local time — e.g. interval_minutes: 60 becomes "
+            'schedule: "0 * * * *"'
+        )
+    schedule = str(raw.get("schedule") or DEFAULT_SCHEDULE).strip()
+    if not croniter.is_valid(schedule):
+        raise ConfigError(f"monitoring.schedule is not a valid cron expression: {schedule!r}")
     monitor = MonitorConfig(
         enabled=bool(raw.get("enabled", False)),
-        interval_minutes=int(raw.get("interval_minutes", 60)),
+        schedule=schedule,
+        run_on_start=bool(raw.get("run_on_start", True)),
         max_videos_check=int(raw.get("max_videos_check", 5)),
         max_age_hours=int(raw.get("max_age_hours", 48)),
         daily_budget_usd=float(raw.get("daily_budget_usd", 1.0)),
         resend_from=str(raw.get("resend_from") or "").strip(),
         subject_prefix=str(raw.get("subject_prefix") or "New video summaries").strip(),
     )
-    if monitor.enabled:
-        if monitor.interval_minutes < 1:
-            raise ConfigError("monitoring.interval_minutes must be at least 1")
-        if not monitor.resend_from:
-            raise ConfigError("monitoring.resend_from is required when monitoring is enabled")
+    if monitor.enabled and not monitor.resend_from:
+        raise ConfigError("monitoring.resend_from is required when monitoring is enabled")
     return monitor

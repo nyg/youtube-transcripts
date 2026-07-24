@@ -70,7 +70,7 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config_file = paths.config_path()
+    config_file = paths.ensure_config()
     log.info("Loading config from %s", config_file)
     cfg = load_config(config_file)
     youtube_client.configure(

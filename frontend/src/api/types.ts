@@ -99,6 +99,8 @@ export interface Meta {
   model: string
   max_videos_fetch: number
   monitoring_enabled: boolean
+  monitor_schedule: string
+  monitor_next_run: string | null
   daily_budget_usd: number
   spend_today_usd: number
 }

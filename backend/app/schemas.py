@@ -141,6 +141,8 @@ class MetaOut(BaseModel):
     model: str
     max_videos_fetch: int
     monitoring_enabled: bool
+    monitor_schedule: str  # cron expression, evaluated in the server's local time
+    monitor_next_run: str | None  # UTC ISO; None when the monitor isn't running
     daily_budget_usd: float
     spend_today_usd: float
 
