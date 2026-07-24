@@ -12,7 +12,7 @@ import types
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers import estimates, prompts
+from app.routers import estimates, prompts, summaries
 from yt_summarizer.database import Database
 
 
@@ -92,3 +92,34 @@ def test_estimate_422_when_channel_has_no_prompt(tmp_path):
     r = client.post("/api/estimates", json={"channel_id": ch["id"], "video_ids": ["v0"]})
     assert r.status_code == 422
     assert "prompt" in r.json()["detail"].lower()
+
+
+def _summaries_client(db: Database) -> TestClient:
+    app = FastAPI()
+    app.state.db = db
+    app.include_router(summaries.router)
+    return TestClient(app)
+
+
+def _seed_summary(db: Database, video_id: str) -> None:
+    db.save_summary(
+        video_id=video_id, title="T", url="u", published_at=None, transcript="x",
+        prompt_name="p", model="m", ai_response="r", tokens_input=1,
+        tokens_output=2, cost_usd=0.1, channel_id=None,
+    )
+
+
+def test_delete_summary_removes_it(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _seed_summary(db, "v0")
+    client = _summaries_client(db)
+
+    assert client.delete("/api/summaries/v0").status_code == 204
+
+    assert db.get_summary("v0") is None
+    assert client.get("/api/summaries").json() == []
+
+
+def test_delete_summary_404_when_missing(tmp_path):
+    client = _summaries_client(Database(tmp_path / "v.db"))
+    assert client.delete("/api/summaries/nope").status_code == 404

@@ -313,6 +313,14 @@ class Database:
         with self._connect() as conn:
             return conn.execute(query, params).fetchall()
 
+    def delete_summary(self, video_id: str) -> bool:
+        """Delete a summary. The video becomes unprocessed and can be redone."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM video_summaries WHERE video_id = ?", (video_id,)
+            )
+        return cursor.rowcount > 0
+
     def get_summary(self, video_id: str) -> sqlite3.Row | None:
         with self._connect() as conn:
             return conn.execute(

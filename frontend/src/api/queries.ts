@@ -179,6 +179,20 @@ export function useSummaries(channelId?: number) {
   })
 }
 
+export function useDeleteSummary() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (videoId: string) =>
+      api<void>(`/api/summaries/${videoId}`, { method: "DELETE" }),
+    onSuccess: (_data, videoId) => {
+      queryClient.removeQueries({ queryKey: ["summary", videoId] })
+      queryClient.invalidateQueries({ queryKey: ["summaries"] })
+      // The video is unprocessed again, so the Process tab's badges are stale.
+      queryClient.invalidateQueries({ queryKey: ["videos"] })
+    },
+  })
+}
+
 export function useSummaryDetail(videoId: string, enabled: boolean) {
   return useQuery({
     queryKey: ["summary", videoId],

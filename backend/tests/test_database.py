@@ -140,3 +140,20 @@ def test_channels_using_prompt_reports_references(tmp_path):
     users = db.channels_using_prompt("shared")
     assert {u["label"] for u in users} == {"A", "B"}
     assert db.channels_using_prompt("nobody") == []
+
+
+def test_delete_summary_removes_row_and_unmarks_video(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _insert(db, "v0", 0.10, _midnight_iso())
+    _insert(db, "v1", 0.20, _midnight_iso())
+
+    assert db.delete_summary("v0") is True
+
+    assert db.get_summary("v0") is None
+    # The video is processable again; the other summary is untouched.
+    assert db.processed_ids() == {"v1"}
+
+
+def test_delete_summary_unknown_video_returns_false(tmp_path):
+    db = Database(tmp_path / "v.db")
+    assert db.delete_summary("nope") is False

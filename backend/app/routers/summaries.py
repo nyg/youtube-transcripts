@@ -21,3 +21,10 @@ def get_summary(video_id: str, request: Request) -> SummaryDetailOut:
     if row is None:
         raise HTTPException(status_code=404, detail="Summary not found")
     return SummaryDetailOut.model_validate(dict(row))
+
+
+@router.delete("/{video_id}", status_code=204)
+def delete_summary(video_id: str, request: Request) -> None:
+    """Drop a stored summary (and its transcript). The video can be redone."""
+    if not request.app.state.db.delete_summary(video_id):
+        raise HTTPException(status_code=404, detail="Summary not found")
