@@ -64,6 +64,12 @@ make backend    # uvicorn on http://localhost:8000 (API docs at /docs)
 make frontend   # Vite on http://localhost:5173 — open this in your browser
 ```
 
+For an always-on box (a Raspberry Pi, say), `make start` launches both detached
+so they survive logging out, with `make status`, `make logs` and `make stop` to
+manage them. Logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
+(`~/.local/state/yt-summarizer` by default) — nothing is written inside the
+checkout.
+
 ## Usage
 
 1. **Add channels** — "Manage channels", enter an `@handle`, `UC…` channel ID,

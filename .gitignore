@@ -22,5 +22,6 @@ node_modules/
 dist/
 .DS_Store
 
-# Background process PIDs and logs (make start)
+# Legacy: `make start` used to write PIDs and logs here before they moved to
+# $XDG_STATE_HOME/yt-summarizer. Kept so an older checkout stays clean.
 .run/

@@ -67,8 +67,12 @@ first run** by copying `backend/config.example.yaml` (or a leftover
 checkout is never the live config — only the template is tracked, and
 `backend/config.yaml` is gitignored. `$YT_SUMMARIZER_CONFIG` overrides and is
 never copied to; a failed copy falls back to reading the template in place.
-Database defaults to `$XDG_DATA_HOME/yt-summarizer/videos.db`. Don't hardcode a
-repo-relative database path.
+Database defaults to `$XDG_DATA_HOME/yt-summarizer/videos.db`, and the
+Makefile's detached-mode logs and PID files to `$XDG_STATE_HOME/yt-summarizer`
+(`STATE_DIR`; not `$XDG_RUNTIME_DIR`, which is wiped when the user's last
+session ends — `make start` is meant to survive logout). Nothing the app or the
+Makefile writes belongs inside the checkout: don't hardcode a repo-relative
+database, config, or log path.
 
 **The monitor is cron-scheduled in local time.** `monitoring.schedule` is a
 5-field cron expression (croniter); `app/monitor.py` recomputes the next fire
