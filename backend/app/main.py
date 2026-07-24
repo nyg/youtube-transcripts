@@ -23,7 +23,25 @@ from .jobs import JobRegistry
 from .monitor import ChannelMonitor
 from .routers import channels, estimates, jobs, meta, monitor, prompts, summaries
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+_LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _configure_logging() -> None:
+    """Timestamp every log line (local time, millisecond precision).
+
+    uvicorn installs its own handlers on `uvicorn`/`uvicorn.access` before this
+    module is imported, and those don't inherit the root formatter — so restamp
+    them too, otherwise half the log file has no time in it.
+    """
+    logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT, datefmt=_LOG_DATEFMT)
+    formatter = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT)
+    for name in ("", "uvicorn", "uvicorn.error", "uvicorn.access"):
+        for handler in logging.getLogger(name).handlers:
+            handler.setFormatter(formatter)
+
+
+_configure_logging()
 log = logging.getLogger(__name__)
 
 _STARTER_PROMPT_NAME = "summary"
