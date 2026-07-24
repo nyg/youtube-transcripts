@@ -31,7 +31,8 @@ talks to `localhost:5173`.
 ## Requirements
 
 - Python 3.11+ (3.14 tested)
-- Node.js 20+
+- Node.js 20+ and [pnpm](https://pnpm.io/installation) 10+ (the frontend's
+  package manager; `corepack enable pnpm` works too)
 - An Anthropic API key ([platform.claude.com](https://platform.claude.com/))
 
 ## Setup
