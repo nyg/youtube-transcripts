@@ -20,10 +20,18 @@ def _utc_midnight_iso() -> str:
 def get_meta(request: Request) -> MetaOut:
     state = request.app.state
     cfg = state.config
+    # The schedule fires in local time, but every timestamp we serve is UTC.
+    next_run = state.monitor.next_run_at
     return MetaOut(
         model=cfg.model,
         max_videos_fetch=cfg.max_videos_fetch,
         monitoring_enabled=cfg.monitor.enabled,
+        monitor_schedule=cfg.monitor.schedule,
+        monitor_next_run=(
+            next_run.astimezone(timezone.utc).isoformat(timespec="seconds")
+            if next_run
+            else None
+        ),
         daily_budget_usd=cfg.monitor.daily_budget_usd,
         spend_today_usd=state.db.spend_since(_utc_midnight_iso()),
     )

@@ -1,7 +1,9 @@
-"""Background monitor: hourly checks for new videos, auto-summarize, email digest.
+"""Background monitor: scheduled checks for new videos, auto-summarize, email digest.
 
 Runs inside the FastAPI process as a daemon thread (started/stopped in the app
-lifespan). One "cycle" per interval:
+lifespan). Cycles fire on the `monitoring.schedule` cron expression, evaluated in
+the server's local time, so the timing is wall-clock stable and independent of
+when the process was started. One "cycle" per fire:
 
   discover new videos per channel  ->  budget-gate  ->  summarize  ->  save
   ->  email one digest per channel to that channel's recipients.
@@ -11,6 +13,9 @@ guard. A video is only summarized if its worst-case cost keeps today's UTC spend
 at or under the cap; otherwise it is deferred and picked up on a later cycle
 (after midnight UTC, spend resets). The monitor shares the single-job slot with
 user-initiated jobs via JobRegistry, so the two never run concurrently.
+
+Note the deliberate split: schedules fire in local time (an operator asking for
+08:00 means their 08:00), while every timestamp stored or served stays UTC.
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+
+from croniter import croniter
 
 from yt_summarizer import markdown_email, notifications, transcripts, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
@@ -55,6 +62,11 @@ class CycleResult:
     budget_hit: bool = False
     spent_today: float = 0.0
     summaries: list[_Summarized] = field(default_factory=list)
+
+
+def _local_now() -> datetime:
+    """Timezone-aware 'now' in the server's local zone, for cron arithmetic."""
+    return datetime.now().astimezone()
 
 
 def _utc_midnight_iso() -> str:
@@ -94,8 +106,14 @@ class ChannelMonitor:
         self._jobs = jobs
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._next_run_at: datetime | None = None
 
     # -- lifecycle ---------------------------------------------------------
+
+    @property
+    def next_run_at(self) -> datetime | None:
+        """When the next scheduled cycle fires; None while not running."""
+        return self._next_run_at
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -104,28 +122,40 @@ class ChannelMonitor:
         self._thread = threading.Thread(target=self._loop, name="channel-monitor", daemon=True)
         self._thread.start()
         log.info(
-            "Channel monitor started — checking every %d min",
-            self._config.monitor.interval_minutes,
+            "Channel monitor started — schedule %r (local time), next run %s",
+            self._config.monitor.schedule,
+            self._next_run(_local_now()).strftime("%Y-%m-%d %H:%M %Z"),
         )
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=10)
+        self._next_run_at = None
         log.info("Channel monitor stopped")
 
     def trigger_async(self) -> None:
         """Run one cycle in a throwaway thread (used by POST /api/monitor/run)."""
         threading.Thread(target=self._safe_run_cycle, name="monitor-manual", daemon=True).start()
 
+    def _next_run(self, after: datetime) -> datetime:
+        """The first scheduled fire time strictly after `after`."""
+        return croniter(self._config.monitor.schedule, after).get_next(datetime)
+
     def _loop(self) -> None:
-        interval = max(60, self._config.monitor.interval_minutes * 60)
-        # Run once at startup (catch up on anything posted while we were down),
-        # then every interval until stopped.
-        while True:
+        # Optionally catch up on anything posted while we were down, then follow
+        # the cron schedule. The next fire time is recomputed every iteration
+        # rather than accumulated, so a slow cycle doesn't push the schedule
+        # forward and a DST shift resolves itself.
+        if self._config.monitor.run_on_start:
             self._safe_run_cycle()
-            if self._stop.wait(interval):
+        while True:
+            now = _local_now()
+            self._next_run_at = self._next_run(now)
+            delay = max(1.0, (self._next_run_at - now).total_seconds())
+            if self._stop.wait(delay):
                 break
+            self._safe_run_cycle()
 
     def _safe_run_cycle(self) -> None:
         try:
