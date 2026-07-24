@@ -38,7 +38,7 @@ only talks to `:5173`.
 ## Run / test
 
 ```bash
-make install          # .venv + backend deps + frontend npm install
+make install          # .venv + backend deps + frontend pnpm install
 make backend          # uvicorn --reload on :8000  (run from repo root)
 make frontend         # Vite on :5173
 
@@ -46,8 +46,8 @@ make frontend         # Vite on :5173
 cd backend && ../.venv/bin/python -m pytest -q
 
 # frontend checks
-cd frontend && npm run build   # tsc -b + vite build (type-checks)
-cd frontend && npm run lint    # oxlint
+cd frontend && pnpm run build   # tsc -b + vite build (type-checks)
+cd frontend && pnpm run lint    # oxlint
 ```
 
 Python 3.14 lives in `.venv`. Backend commands run from `backend/` using
