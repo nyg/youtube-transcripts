@@ -1,8 +1,10 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { Trash2 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { toast } from "sonner"
 
-import { useSummaryDetail } from "@/api/queries"
+import { useDeleteSummary, useSummaryDetail } from "@/api/queries"
 import type { Summary } from "@/api/types"
 import { formatDateTime } from "@/lib/datetime"
 import { Badge } from "@/components/ui/badge"
@@ -24,11 +26,32 @@ interface Props {
 export function SummaryCard({ summary }: Props) {
   const [showTranscript, setShowTranscript] = useState(false)
   const detail = useSummaryDetail(summary.video_id, showTranscript)
+  const deleteSummary = useDeleteSummary()
+  // Deleting drops the summary *and* its transcript for good, so the trash icon
+  // arms first and only deletes on a second click.
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    if (!confirming) return
+    const timer = setTimeout(() => setConfirming(false), 4000)
+    return () => clearTimeout(timer)
+  }, [confirming])
+
+  const remove = () => {
+    if (!confirming) {
+      setConfirming(true)
+      return
+    }
+    deleteSummary.mutate(summary.video_id, {
+      onSuccess: () => toast.success(`Deleted “${summary.title}”`),
+      onError: (error) => toast.error(error.message),
+    })
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
+        <CardTitle className="flex items-start justify-between gap-2">
           <a
             href={summary.url}
             target="_blank"
@@ -37,6 +60,27 @@ export function SummaryCard({ summary }: Props) {
           >
             {summary.title}
           </a>
+          <Button
+            variant={confirming ? "destructive" : "ghost"}
+            size={confirming ? "sm" : "icon"}
+            className="shrink-0"
+            aria-label={
+              confirming
+                ? `Confirm deleting ${summary.title}`
+                : `Delete ${summary.title}`
+            }
+            title={
+              confirming
+                ? "Click again to delete — the transcript goes too"
+                : "Delete this summary"
+            }
+            disabled={deleteSummary.isPending}
+            onClick={remove}
+            onBlur={() => setConfirming(false)}
+          >
+            <Trash2 className={confirming ? undefined : "text-destructive"} />
+            {confirming && "Delete?"}
+          </Button>
         </CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-2">
           <span>{formatDateTime(summary.published_at)}</span>
