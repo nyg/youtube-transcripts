@@ -25,6 +25,17 @@ export interface Mention {
   url: string | null
 }
 
+export interface SearchHit {
+  video_id: string
+  kind: "transcript" | "summary"
+  start_seconds: number | null
+  snippet: string // highlights delimited by \x02 and \x03
+  title: string
+  url: string
+  published_at: string | null
+  channel_id: number | null
+}
+
 export interface Entity {
   entity: string
   entity_key: string

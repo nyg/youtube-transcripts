@@ -169,6 +169,17 @@ class EntityOut(BaseModel):
     video_count: int
 
 
+class SearchHitOut(BaseModel):
+    video_id: str
+    kind: Literal["transcript", "summary"]
+    start_seconds: int | None
+    snippet: str  # highlights delimited by \x02 and \x03
+    title: str
+    url: str
+    published_at: str | None
+    channel_id: int | None
+
+
 class SummaryOut(BaseModel):
     id: int
     video_id: str

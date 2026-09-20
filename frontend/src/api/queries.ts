@@ -14,6 +14,7 @@ import type {
   Mention,
   Meta,
   Prompt,
+  SearchHit,
   Summary,
   SummaryDetail,
   VideoList,
@@ -242,5 +243,20 @@ export function useMentions(
     queryFn: () =>
       api<Mention[]>(`/api/mentions${query({ channel_id: channelId, entity, since })}`),
     enabled: entity !== undefined,
+  })
+}
+
+export function useSearch(
+  text: string,
+  channelId: number | undefined,
+  since?: string,
+) {
+  const trimmed = text.trim()
+  return useQuery({
+    queryKey: ["search", trimmed, channelId ?? "all", since ?? "all"],
+    queryFn: () =>
+      api<SearchHit[]>(`/api/search${query({ q: trimmed, channel_id: channelId, since })}`),
+    enabled: trimmed.length > 1,
+    placeholderData: (previous) => previous,
   })
 }
