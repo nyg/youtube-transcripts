@@ -16,6 +16,7 @@ import json
 import logging
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from yt_dlp.networking.exceptions import RequestError
@@ -26,22 +27,94 @@ from .youtube_client import YouTubeRateLimitError
 log = logging.getLogger(__name__)
 
 _RATE_LIMIT_BACKOFF_SECONDS = 20.0
+_TIMESTAMP_WINDOW_SECONDS = 30
 
 
 class TranscriptError(Exception):
     """Raised when no transcript could be retrieved for a video."""
 
 
-def _parse_json3(raw: str) -> str:
-    """Flatten a YouTube json3 caption file into one whitespace-joined string."""
-    events = (json.loads(raw).get("events") or []) if raw else []
+@dataclass(frozen=True)
+class Segment:
+    start_ms: int
+    text: str
+
+
+@dataclass(frozen=True)
+class Transcript:
+    text: str
+    segments: list[Segment] | None = None
+
+    def rendered(self, *, timestamps: bool) -> str:
+        if timestamps and self.segments:
+            return render_timestamped(self.segments)
+        return self.text
+
+
+def _stamp(seconds: int) -> str:
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def render_timestamped(
+    segments: Sequence[Segment], window_seconds: int = _TIMESTAMP_WINDOW_SECONDS
+) -> str:
+    lines: list[str] = []
+    start: int | None = None
     parts: list[str] = []
+    for segment in segments:
+        at = segment.start_ms // 1000
+        if start is None or at - start >= window_seconds:
+            if parts and start is not None:
+                lines.append(f"[{_stamp(start)}] {' '.join(parts)}")
+            start = at
+            parts = []
+        parts.append(segment.text)
+    if parts and start is not None:
+        lines.append(f"[{_stamp(start)}] {' '.join(parts)}")
+    return "\n".join(lines)
+
+
+def segments_to_json(segments: Sequence[Segment] | None) -> str | None:
+    if not segments:
+        return None
+    return json.dumps([[s.start_ms, s.text] for s in segments], ensure_ascii=False)
+
+
+def segments_from_json(raw: str | None) -> list[Segment] | None:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    segments = [
+        Segment(start_ms=int(item[0]), text=str(item[1]))
+        for item in data
+        if isinstance(item, list) and len(item) == 2
+    ]
+    return segments or None
+
+
+def _parse_json3(raw: str) -> Transcript:
+    events = (json.loads(raw).get("events") or []) if raw else []
+    segments: list[Segment] = []
     for event in events:
+        parts: list[str] = []
         for seg in event.get("segs") or []:
             text = seg.get("utf8", "").replace("\n", " ").strip()
             if text:
                 parts.append(text)
-    return " ".join(" ".join(parts).split())
+        joined = " ".join(" ".join(parts).split())
+        if joined:
+            segments.append(Segment(start_ms=int(event.get("tStartMs") or 0), text=joined))
+    return Transcript(
+        text=" ".join(segment.text for segment in segments),
+        segments=segments or None,
+    )
 
 
 def select_caption_track(info: dict[str, Any], languages: Sequence[str]) -> str | None:
@@ -100,8 +173,8 @@ def _download_caption(url: str, video_id: str) -> str:
 
 def fetch_transcript(
     info: dict[str, Any] | None, video_id: str, languages: Sequence[str]
-) -> str:
-    """Return the full transcript text, preferring `languages` in order.
+) -> Transcript:
+    """Return the full transcript, preferring `languages` in order.
 
     `info` is the dict from youtube_client.fetch_video_details (None if that
     extraction failed). Videos without captions are detected from the info
@@ -117,7 +190,7 @@ def fetch_transcript(
     if url is None:
         raise TranscriptError(f"No transcript available for video {video_id}")
 
-    text = _parse_json3(_download_caption(url, video_id))
-    if not text:
+    transcript = _parse_json3(_download_caption(url, video_id))
+    if not transcript.text:
         raise TranscriptError(f"Transcript for video {video_id} is empty")
-    return text
+    return transcript

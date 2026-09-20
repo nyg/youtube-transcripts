@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .mentions import Mention, entity_key
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS video_summaries (
@@ -42,6 +44,25 @@ CREATE TABLE IF NOT EXISTS prompts (
     estimated_output_tokens INTEGER NOT NULL DEFAULT 2000,
     created_at              TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mentions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id          TEXT NOT NULL,
+    channel_id        INTEGER,
+    prompt_name       TEXT NOT NULL,
+    entity            TEXT NOT NULL,
+    entity_key        TEXT NOT NULL,
+    stance            TEXT NOT NULL,
+    confidence        TEXT NOT NULL,
+    rationale         TEXT,
+    quote             TEXT,
+    timestamp_seconds INTEGER,
+    published_at      TEXT,
+    processed_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS mentions_entity ON mentions (entity_key, published_at);
+CREATE INDEX IF NOT EXISTS mentions_video ON mentions (video_id);
 """
 
 
@@ -55,6 +76,13 @@ class Database:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(video_summaries)")}
             if "channel_id" not in columns:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN channel_id INTEGER")
+            if "transcript_segments" not in columns:
+                conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_segments TEXT")
+            prompt_columns = {row[1] for row in conn.execute("PRAGMA table_info(prompts)")}
+            if "entity_kind" not in prompt_columns:
+                conn.execute("ALTER TABLE prompts ADD COLUMN entity_kind TEXT")
+            if "stance_labels" not in prompt_columns:
+                conn.execute("ALTER TABLE prompts ADD COLUMN stance_labels TEXT")
             # Databases created before per-channel prompts / recipients lack these.
             channel_columns = {row[1] for row in conn.execute("PRAGMA table_info(channels)")}
             if "prompt_name" not in channel_columns:
@@ -161,14 +189,28 @@ class Database:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM prompts WHERE name = ?", (name,)).fetchone()
 
-    def add_prompt(self, name: str, text: str, estimated_output_tokens: int) -> sqlite3.Row:
+    def add_prompt(
+        self,
+        name: str,
+        text: str,
+        estimated_output_tokens: int,
+        entity_kind: str | None = None,
+        stance_labels: list[str] | None = None,
+    ) -> sqlite3.Row:
         """Insert a prompt and return its row. Raises sqlite3.IntegrityError on a duplicate name."""
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO prompts (name, text, estimated_output_tokens, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (name, text, estimated_output_tokens, created_at),
+                "INSERT INTO prompts (name, text, estimated_output_tokens, created_at, "
+                "entity_kind, stance_labels) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    name,
+                    text,
+                    estimated_output_tokens,
+                    created_at,
+                    entity_kind or None,
+                    json.dumps(stance_labels) if stance_labels else None,
+                ),
             )
             row = conn.execute(
                 "SELECT * FROM prompts WHERE id = ?", (cursor.lastrowid,)
@@ -182,9 +224,12 @@ class Database:
         *,
         text: str | None = None,
         estimated_output_tokens: int | None = None,
+        entity_kind: str | None = None,
+        stance_labels: list[str] | None = None,
     ) -> sqlite3.Row | None:
         """Update a prompt's text and/or estimated output tokens (its name is immutable,
-        since channels reference it by name). Returns the updated row, or None if missing."""
+        since channels reference it by name). Returns the updated row, or None if missing.
+"""
         sets: list[str] = []
         params: list[object] = []
         if text is not None:
@@ -193,6 +238,12 @@ class Database:
         if estimated_output_tokens is not None:
             sets.append("estimated_output_tokens = ?")
             params.append(estimated_output_tokens)
+        if entity_kind is not None:
+            sets.append("entity_kind = ?")
+            params.append(entity_kind or None)
+        if stance_labels is not None:
+            sets.append("stance_labels = ?")
+            params.append(json.dumps(stance_labels) if stance_labels else None)
         if not sets:
             return self.get_prompt(prompt_id)
         params.append(prompt_id)
@@ -261,6 +312,8 @@ class Database:
         tokens_output: int,
         cost_usd: float | None,
         channel_id: int | None = None,
+        transcript_segments: str | None = None,
+        mentions: Sequence[Mention] = (),
     ) -> None:
         processed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
@@ -269,8 +322,8 @@ class Database:
                 INSERT INTO video_summaries (
                     video_id, title, url, published_at, transcript, prompt_name,
                     model, ai_response, tokens_input, tokens_output, cost_usd,
-                    processed_at, channel_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    processed_at, channel_id, transcript_segments
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                     title=excluded.title,
                     url=excluded.url,
@@ -283,7 +336,8 @@ class Database:
                     tokens_output=excluded.tokens_output,
                     cost_usd=excluded.cost_usd,
                     processed_at=excluded.processed_at,
-                    channel_id=excluded.channel_id
+                    channel_id=excluded.channel_id,
+                    transcript_segments=excluded.transcript_segments
                 """,
                 (
                     video_id,
@@ -299,7 +353,35 @@ class Database:
                     cost_usd,
                     processed_at,
                     channel_id,
+                    transcript_segments,
                 ),
+            )
+            conn.execute("DELETE FROM mentions WHERE video_id = ?", (video_id,))
+            conn.executemany(
+                """
+                INSERT INTO mentions (
+                    video_id, channel_id, prompt_name, entity, entity_key, stance,
+                    confidence, rationale, quote, timestamp_seconds, published_at,
+                    processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        video_id,
+                        channel_id,
+                        prompt_name,
+                        mention.entity,
+                        entity_key(mention.entity),
+                        mention.stance,
+                        mention.confidence,
+                        mention.rationale,
+                        mention.quote,
+                        mention.timestamp_seconds,
+                        published_at,
+                        processed_at,
+                    )
+                    for mention in mentions
+                ],
             )
 
     def all_summaries(self, channel_id: int | None = None) -> list[sqlite3.Row]:
@@ -319,7 +401,102 @@ class Database:
             cursor = conn.execute(
                 "DELETE FROM video_summaries WHERE video_id = ?", (video_id,)
             )
+            conn.execute("DELETE FROM mentions WHERE video_id = ?", (video_id,))
         return cursor.rowcount > 0
+
+    # -- mentions ----------------------------------------------------------
+
+    def list_mentions(
+        self,
+        *,
+        channel_id: int | None = None,
+        entity: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 500,
+    ) -> list[sqlite3.Row]:
+        query = (
+            "SELECT m.*, v.title AS title, v.url AS url "
+            "FROM mentions m JOIN video_summaries v ON v.video_id = m.video_id"
+        )
+        clauses: list[str] = []
+        params: list[object] = []
+        if channel_id is not None:
+            clauses.append("m.channel_id = ?")
+            params.append(channel_id)
+        if entity:
+            clauses.append("m.entity_key = ?")
+            params.append(entity_key(entity))
+        if since:
+            clauses.append("COALESCE(m.published_at, m.processed_at) >= ?")
+            params.append(since)
+        if until:
+            clauses.append("COALESCE(m.published_at, m.processed_at) <= ?")
+            params.append(until)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY COALESCE(m.published_at, m.processed_at) DESC, m.id DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            return conn.execute(query, params).fetchall()
+
+    def entity_overview(
+        self, *, channel_id: int | None = None, since: str | None = None
+    ) -> list[dict]:
+        rows = self.list_mentions(channel_id=channel_id, since=since, limit=100_000)
+        overview: dict[str, dict] = {}
+        for row in rows:  # newest first
+            key = row["entity_key"]
+            at = row["published_at"] or row["processed_at"]
+            entry = overview.get(key)
+            if entry is None:
+                overview[key] = {
+                    "entity_key": key,
+                    "entity": row["entity"],
+                    "latest_stance": row["stance"],
+                    "latest_at": at,
+                    "latest_video_id": row["video_id"],
+                    "previous_stance": None,
+                    "previous_at": None,
+                    "mention_count": 1,
+                    "video_ids": {row["video_id"]},
+                }
+                continue
+            entry["mention_count"] += 1
+            entry["video_ids"].add(row["video_id"])
+            if entry["previous_stance"] is None and row["stance"] != entry["latest_stance"]:
+                entry["previous_stance"] = row["stance"]
+                entry["previous_at"] = at
+        result = []
+        for entry in overview.values():
+            video_ids = entry.pop("video_ids")
+            entry["video_count"] = len(video_ids)
+            result.append(entry)
+        result.sort(key=lambda e: (e["latest_at"] or "", e["mention_count"]), reverse=True)
+        return result
+
+    def mentions_for_videos(self, video_ids: Sequence[str]) -> dict[str, list[sqlite3.Row]]:
+        if not video_ids:
+            return {}
+        placeholders = ",".join("?" * len(video_ids))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM mentions WHERE video_id IN ({placeholders}) ORDER BY id",
+                tuple(video_ids),
+            ).fetchall()
+        grouped: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            grouped.setdefault(row["video_id"], []).append(row)
+        return grouped
+
+    def known_entities(self, prompt_name: str, limit: int = 200) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT entity, COUNT(*) AS uses FROM mentions WHERE prompt_name = ? "
+                "GROUP BY entity_key ORDER BY uses DESC, entity LIMIT ?",
+                (prompt_name, limit),
+            ).fetchall()
+        return [row["entity"] for row in rows]
 
     def get_summary(self, video_id: str) -> sqlite3.Row | None:
         with self._connect() as conn:

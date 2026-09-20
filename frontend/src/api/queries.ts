@@ -7,9 +7,11 @@ import {
 import { api } from "./client"
 import type {
   Channel,
+  Entity,
   Estimate,
   EstimateRequest,
   Job,
+  Mention,
   Meta,
   Prompt,
   Summary,
@@ -86,13 +88,21 @@ export function usePrompts() {
 export function useAddPrompt() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { name: string; text: string; estimatedOutputTokens: number }) =>
+    mutationFn: (vars: {
+      name: string
+      text: string
+      estimatedOutputTokens: number
+      entityKind?: string
+      stanceLabels?: string[]
+    }) =>
       api<Prompt>("/api/prompts", {
         method: "POST",
         body: JSON.stringify({
           name: vars.name,
           text: vars.text,
           estimated_output_tokens: vars.estimatedOutputTokens,
+          entity_kind: vars.entityKind ?? null,
+          stance_labels: vars.stanceLabels ?? [],
         }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
@@ -106,6 +116,8 @@ export function useUpdatePrompt() {
       promptId: number
       text?: string
       estimatedOutputTokens?: number
+      entityKind?: string
+      stanceLabels?: string[]
     }) =>
       api<Prompt>(`/api/prompts/${vars.promptId}`, {
         method: "PATCH",
@@ -114,6 +126,8 @@ export function useUpdatePrompt() {
           ...(vars.estimatedOutputTokens !== undefined && {
             estimated_output_tokens: vars.estimatedOutputTokens,
           }),
+          ...(vars.entityKind !== undefined && { entity_kind: vars.entityKind }),
+          ...(vars.stanceLabels !== undefined && { stance_labels: vars.stanceLabels }),
         }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
@@ -199,5 +213,34 @@ export function useSummaryDetail(videoId: string, enabled: boolean) {
     queryFn: () => api<SummaryDetail>(`/api/summaries/${videoId}`),
     enabled,
     staleTime: Infinity,
+  })
+}
+
+function query(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") search.set(key, String(value))
+  }
+  const rendered = search.toString()
+  return rendered ? `?${rendered}` : ""
+}
+
+export function useEntities(channelId: number | undefined, since?: string) {
+  return useQuery({
+    queryKey: ["entities", channelId ?? "all", since ?? "all"],
+    queryFn: () => api<Entity[]>(`/api/entities${query({ channel_id: channelId, since })}`),
+  })
+}
+
+export function useMentions(
+  channelId: number | undefined,
+  entity: string | undefined,
+  since?: string,
+) {
+  return useQuery({
+    queryKey: ["mentions", channelId ?? "all", entity ?? "all", since ?? "all"],
+    queryFn: () =>
+      api<Mention[]>(`/api/mentions${query({ channel_id: channelId, entity, since })}`),
+    enabled: entity !== undefined,
   })
 }

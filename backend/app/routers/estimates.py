@@ -7,9 +7,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from yt_summarizer import transcripts, youtube_client
+from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 
 from ..estimates import PreparedVideo
+from ..prompts import extraction_for
 from ..schemas import EstimateItemOut, EstimateOut, EstimateRequest
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
     prompt_name = prompt["name"]
     prompt_text = prompt["text"]
     estimated_output_tokens = prompt["estimated_output_tokens"]
+    extraction = extraction_for(state.db, prompt)
 
     prepared: dict[str, PreparedVideo] = {}
     items: list[EstimateItemOut] = []
@@ -63,7 +66,10 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
                 published_at=row["published_at"],
                 url=row["url"],
             )
-            transcript = row["transcript"]
+            transcript = Transcript(
+                text=row["transcript"],
+                segments=transcripts.segments_from_json(row["transcript_segments"]),
+            )
         elif rate_limited:
             # YouTube already answered 429 in this batch; don't dig a deeper
             # hole by requesting the remaining videos.
@@ -112,7 +118,9 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
 
         # Auth/model errors would fail for every video — let the whole request
         # abort with a 502 via the SummarizerError handler.
-        estimate = state.summarizer.estimate(prompt_text, transcript, estimated_output_tokens)
+        estimate = state.summarizer.estimate(
+            prompt_text, transcript, estimated_output_tokens, extraction
+        )
         prepared[video_id] = PreparedVideo(video=video, transcript=transcript, estimate=estimate)
         items.append(
             EstimateItemOut(
@@ -131,6 +139,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
         channel_id=body.channel_id,
         prompt_name=prompt_name,
         prompt_text=prompt_text,
+        extraction=extraction,
         items=prepared,
     )
 

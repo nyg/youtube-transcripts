@@ -93,13 +93,14 @@ def _json3(*texts: str) -> str:
 
 
 def test_parse_json3_joins_segments_with_single_spaces():
-    assert _parse_json3(_json3("Hello\nworld", "  again  ")) == "Hello world again"
+    assert _parse_json3(_json3("Hello\nworld", "  again  ")).text == "Hello world again"
 
 
 def test_parse_json3_empty_input():
-    assert _parse_json3("") == ""
-    assert _parse_json3(json.dumps({"events": []})) == ""
-    assert _parse_json3(json.dumps({})) == ""
+    for raw in ("", json.dumps({"events": []}), json.dumps({})):
+        parsed = _parse_json3(raw)
+        assert parsed.text == ""
+        assert parsed.segments is None
 
 
 # --- fetch_transcript / 429 backoff -----------------------------------------
@@ -135,7 +136,7 @@ def test_fetch_transcript_downloads_selected_track(monkeypatch, no_sleep):
         return _json3("Hello", "world").encode()
 
     monkeypatch.setattr(youtube_client, "fetch_url", fake_fetch)
-    assert fetch_transcript(_info_with_track(), "vid", ["en"]) == "Hello world"
+    assert fetch_transcript(_info_with_track(), "vid", ["en"]).text == "Hello world"
     assert calls == [_url("manual-en")]
     assert no_sleep == []
 
@@ -150,7 +151,7 @@ def test_fetch_transcript_retries_once_after_429(monkeypatch, no_sleep):
         return result
 
     monkeypatch.setattr(youtube_client, "fetch_url", fake_fetch)
-    assert fetch_transcript(_info_with_track(), "vid", ["en"]) == "ok"
+    assert fetch_transcript(_info_with_track(), "vid", ["en"]).text == "ok"
     assert no_sleep == [transcripts._RATE_LIMIT_BACKOFF_SECONDS]
 
 
@@ -178,3 +179,48 @@ def test_fetch_transcript_empty_captions_raise(monkeypatch, no_sleep):
     monkeypatch.setattr(youtube_client, "fetch_url", lambda url: _json3().encode())
     with pytest.raises(TranscriptError):
         fetch_transcript(_info_with_track(), "vid", ["en"])
+
+
+# --- segments / timestamped rendering ---------------------------------------
+
+
+def _json3_timed(*events: tuple[int, str]) -> str:
+    return json.dumps(
+        {"events": [{"tStartMs": at, "segs": [{"utf8": text}]} for at, text in events]}
+    )
+
+
+def test_parse_json3_keeps_segment_start_times():
+    parsed = _parse_json3(_json3_timed((0, "hello"), (1500, "world")))
+    assert parsed.text == "hello world"
+    assert parsed.segments == [
+        transcripts.Segment(start_ms=0, text="hello"),
+        transcripts.Segment(start_ms=1500, text="world"),
+    ]
+
+
+def test_render_timestamped_groups_into_windows():
+    segments = [
+        transcripts.Segment(start_ms=0, text="one"),
+        transcripts.Segment(start_ms=10_000, text="two"),
+        transcripts.Segment(start_ms=45_000, text="three"),
+        transcripts.Segment(start_ms=3_700_000, text="four"),
+    ]
+    assert transcripts.render_timestamped(segments).splitlines() == [
+        "[00:00] one two",
+        "[00:45] three",
+        "[1:01:40] four",
+    ]
+
+
+def test_rendered_falls_back_to_flat_text_without_segments():
+    flat = transcripts.Transcript(text="flat")
+    assert flat.rendered(timestamps=True) == "flat"
+
+
+def test_segments_json_round_trip():
+    segments = [transcripts.Segment(start_ms=250, text="a b")]
+    assert transcripts.segments_from_json(transcripts.segments_to_json(segments)) == segments
+    assert transcripts.segments_to_json([]) is None
+    assert transcripts.segments_from_json(None) is None
+    assert transcripts.segments_from_json("not json") is None

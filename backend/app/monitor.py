@@ -34,9 +34,11 @@ from yt_summarizer import markdown_email, notifications, transcripts, youtube_cl
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
 from yt_summarizer.config import Config
 from yt_summarizer.database import Database
+from yt_summarizer.transcripts import segments_to_json
 from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 
 from .jobs import JobRegistry
+from .prompts import extraction_for
 
 log = logging.getLogger(__name__)
 
@@ -199,6 +201,7 @@ class ChannelMonitor:
             prompt_name = prompt_row["name"]
             prompt_text = prompt_row["text"]
             prompt_output_tokens = prompt_row["estimated_output_tokens"]
+            extraction = extraction_for(self._db, prompt_row)
             recipients = json.loads(channel["notify_emails"] or "[]")
 
             try:
@@ -236,7 +239,7 @@ class ChannelMonitor:
 
                 # Budget pre-check at worst case (full max_output_tokens).
                 est = self._summarizer.estimate(
-                    prompt_text, transcript, prompt_output_tokens
+                    prompt_text, transcript, prompt_output_tokens, extraction
                 )
                 worst = self._summarizer.cost(est.input_tokens, self._summarizer.max_output_tokens)
                 if budget > 0 and worst is not None and spent + worst > budget:
@@ -249,7 +252,7 @@ class ChannelMonitor:
                     break
 
                 try:
-                    summary = self._summarizer.summarize(prompt_text, transcript)
+                    summary = self._summarizer.summarize(prompt_text, transcript, extraction)
                 except SummarizerError as exc:
                     log.error("Monitor: failed to summarize %s: %s", video.video_id, exc)
                     result.failed += 1
@@ -260,7 +263,9 @@ class ChannelMonitor:
                     title=video.title,
                     url=video.url,
                     published_at=video.published_at,
-                    transcript=transcript,
+                    transcript=transcript.text,
+                    transcript_segments=segments_to_json(transcript.segments),
+                    mentions=summary.mentions,
                     prompt_name=prompt_name,
                     model=cfg.model,
                     ai_response=summary.text,

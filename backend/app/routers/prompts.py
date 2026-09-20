@@ -11,7 +11,8 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..schemas import PromptIn, PromptOut, PromptPatch
+from ..prompts import stance_labels
+from ..schemas import MAX_STANCE_LABELS, PromptIn, PromptOut, PromptPatch
 
 router = APIRouter(prefix="/api/prompts")
 
@@ -23,7 +24,20 @@ def _to_prompt(row: sqlite3.Row) -> PromptOut:
         text=row["text"],
         estimated_output_tokens=row["estimated_output_tokens"],
         created_at=row["created_at"],
+        entity_kind=row["entity_kind"],
+        stance_labels=stance_labels(row),
     )
+
+
+def _check_labels(labels: list[str] | None) -> None:
+    if labels is None:
+        return
+    if len(labels) > MAX_STANCE_LABELS:
+        raise HTTPException(
+            status_code=422, detail=f"At most {MAX_STANCE_LABELS} stance labels"
+        )
+    if len({label.casefold() for label in labels}) != len(labels):
+        raise HTTPException(status_code=422, detail="Stance labels must be unique")
 
 
 @router.get("", response_model=list[PromptOut])
@@ -39,8 +53,15 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
         raise HTTPException(status_code=422, detail="Prompt name cannot be empty")
     if not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
+    _check_labels(body.stance_labels)
     try:
-        row = request.app.state.db.add_prompt(name, text, body.estimated_output_tokens)
+        row = request.app.state.db.add_prompt(
+            name,
+            text,
+            body.estimated_output_tokens,
+            entity_kind=(body.entity_kind or "").strip(),
+            stance_labels=body.stance_labels,
+        )
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail=f"Prompt {name!r} already exists")
     return _to_prompt(row)
@@ -51,10 +72,13 @@ def update_prompt(prompt_id: int, body: PromptPatch, request: Request) -> Prompt
     text = body.text.strip() if body.text is not None else None
     if text is not None and not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
+    _check_labels(body.stance_labels)
     row = request.app.state.db.update_prompt(
         prompt_id,
         text=text,
         estimated_output_tokens=body.estimated_output_tokens,
+        entity_kind=body.entity_kind.strip() if body.entity_kind is not None else None,
+        stance_labels=body.stance_labels,
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Prompt not found")

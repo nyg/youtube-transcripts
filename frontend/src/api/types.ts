@@ -6,6 +6,35 @@ export interface Prompt {
   text: string
   estimated_output_tokens: number
   created_at: string
+  entity_kind: string | null // what the prompt extracts (coin, stock, product…)
+  stance_labels: string[] // empty = summary only, no extraction
+}
+
+export interface Mention {
+  video_id: string
+  entity: string
+  entity_key: string
+  stance: string
+  confidence: string
+  rationale: string | null
+  quote: string | null
+  timestamp_seconds: number | null
+  published_at: string | null
+  channel_id: number | null
+  title: string | null
+  url: string | null
+}
+
+export interface Entity {
+  entity: string
+  entity_key: string
+  latest_stance: string
+  latest_at: string | null
+  latest_video_id: string
+  previous_stance: string | null
+  previous_at: string | null
+  mention_count: number
+  video_count: number
 }
 
 export interface Channel {
@@ -89,6 +118,7 @@ export interface Summary {
   cost_usd: number | null
   processed_at: string
   channel_id: number | null
+  mentions: Mention[]
 }
 
 export interface SummaryDetail extends Summary {

@@ -8,8 +8,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
+from yt_summarizer.claude_client import ClaudeSummarizer, Extraction, SummarizerError
 from yt_summarizer.database import Database
+from yt_summarizer.transcripts import Transcript, segments_to_json
 from yt_summarizer.youtube_client import Video
 
 from .estimates import PreparedEstimate
@@ -25,7 +26,7 @@ class JobConflictError(Exception):
 @dataclass
 class JobItem:
     video: Video
-    transcript: str
+    transcript: Transcript
     status: str = "queued"  # queued | processing | done | failed
     error: str | None = None
     tokens_input: int | None = None
@@ -98,7 +99,7 @@ class JobRegistry:
             self._jobs[job.job_id] = job
         thread = threading.Thread(
             target=self._run,
-            args=(job, estimate.prompt_text, db, summarizer, model),
+            args=(job, estimate.prompt_text, estimate.extraction, db, summarizer, model),
             name=f"job-{job.job_id[:8]}",
             daemon=True,
         )
@@ -134,6 +135,7 @@ class JobRegistry:
         self,
         job: Job,
         prompt_text: str,
+        extraction: Extraction | None,
         db: Database,
         summarizer: ClaudeSummarizer,
         model: str,
@@ -143,7 +145,7 @@ class JobRegistry:
                 with self._lock:
                     item.status = "processing"
                 try:
-                    result = summarizer.summarize(prompt_text, item.transcript)
+                    result = summarizer.summarize(prompt_text, item.transcript, extraction)
                 except SummarizerError as exc:
                     log.error("Failed to summarize %s: %s", item.video.video_id, exc)
                     with self._lock:
@@ -155,7 +157,9 @@ class JobRegistry:
                     title=item.video.title,
                     url=item.video.url,
                     published_at=item.video.published_at,
-                    transcript=item.transcript,
+                    transcript=item.transcript.text,
+                    transcript_segments=segments_to_json(item.transcript.segments),
+                    mentions=result.mentions,
                     prompt_name=job.prompt_name,
                     model=model,
                     ai_response=result.text,

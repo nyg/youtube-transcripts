@@ -21,7 +21,16 @@ from yt_summarizer.database import Database
 from .estimates import EstimateStore
 from .jobs import JobRegistry
 from .monitor import ChannelMonitor
-from .routers import channels, estimates, jobs, meta, monitor, prompts, summaries
+from .routers import (
+    channels,
+    estimates,
+    jobs,
+    mentions,
+    meta,
+    monitor,
+    prompts,
+    summaries,
+)
 
 _LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -127,5 +136,14 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
-for router_module in (meta, channels, prompts, estimates, jobs, monitor, summaries):
+for router_module in (
+    meta,
+    channels,
+    prompts,
+    estimates,
+    jobs,
+    monitor,
+    summaries,
+    mentions,
+):
     app.include_router(router_module.router)

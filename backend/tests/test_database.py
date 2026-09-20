@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from yt_summarizer.database import Database
+from yt_summarizer.mentions import Mention
+from yt_summarizer.transcripts import Segment, segments_from_json, segments_to_json
 
 
 def _midnight_iso() -> str:
@@ -157,3 +159,111 @@ def test_delete_summary_removes_row_and_unmarks_video(tmp_path):
 def test_delete_summary_unknown_video_returns_false(tmp_path):
     db = Database(tmp_path / "v.db")
     assert db.delete_summary("nope") is False
+
+
+# --- mentions ---------------------------------------------------------------
+
+
+def _mention(entity: str, stance: str, at: int | None = 12) -> Mention:
+    return Mention(
+        entity=entity,
+        stance=stance,
+        confidence="high",
+        rationale="because",
+        quote="a quote",
+        timestamp_seconds=at,
+    )
+
+
+def _save(db: Database, video_id: str, published_at: str, mentions: list[Mention]) -> None:
+    db.save_summary(
+        video_id=video_id,
+        title=f"Video {video_id}",
+        url=f"https://www.youtube.com/watch?v={video_id}",
+        published_at=published_at,
+        transcript="a transcript",
+        prompt_name="crypto",
+        model="m",
+        ai_response="summary",
+        tokens_input=10,
+        tokens_output=5,
+        cost_usd=0.01,
+        channel_id=1,
+        transcript_segments=None,
+        mentions=mentions,
+    )
+
+
+def test_reprocessing_replaces_mentions(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save(db, "v0", "2026-09-01T10:00:00+00:00", [_mention("BTC", "bullish")])
+    _save(db, "v0", "2026-09-01T10:00:00+00:00", [_mention("ETH", "bearish")])
+
+    rows = db.list_mentions()
+    assert [(row["entity"], row["stance"]) for row in rows] == [("ETH", "bearish")]
+    assert rows[0]["title"] == "Video v0"
+
+
+def test_entity_overview_reports_latest_and_previous_stance(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save(db, "v0", "2026-09-01T10:00:00+00:00", [_mention("ADA", "bullish")])
+    _save(db, "v1", "2026-09-05T10:00:00+00:00", [_mention("ADA", "bullish")])
+    _save(db, "v2", "2026-09-10T10:00:00+00:00", [_mention("ada", "bearish")])
+
+    overview = db.entity_overview()
+    assert len(overview) == 1
+    entry = overview[0]
+    assert entry["entity"] == "ada"
+    assert entry["latest_stance"] == "bearish"
+    assert entry["previous_stance"] == "bullish"
+    assert entry["previous_at"] == "2026-09-05T10:00:00+00:00"
+    assert entry["mention_count"] == 3
+    assert entry["video_count"] == 3
+
+
+def test_entity_overview_since_filters_by_publish_date(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save(db, "v0", "2026-08-01T10:00:00+00:00", [_mention("SOL", "bullish")])
+    _save(db, "v1", "2026-09-10T10:00:00+00:00", [_mention("BTC", "bearish")])
+
+    entities = {e["entity"] for e in db.entity_overview(since="2026-09-01T00:00:00+00:00")}
+    assert entities == {"BTC"}
+
+
+def test_deleting_a_summary_deletes_its_mentions(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save(db, "v0", "2026-09-01T10:00:00+00:00", [_mention("BTC", "bullish")])
+    _save(db, "v1", "2026-09-02T10:00:00+00:00", [_mention("BTC", "bearish")])
+
+    assert db.delete_summary("v0") is True
+    assert [row["video_id"] for row in db.list_mentions()] == ["v1"]
+
+
+def test_known_entities_are_ordered_by_use(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save(db, "v0", "2026-09-01T10:00:00+00:00", [_mention("BTC", "bullish")])
+    _save(db, "v1", "2026-09-02T10:00:00+00:00", [_mention("BTC", "bullish"), _mention("XRP", "bearish")])
+
+    assert db.known_entities("crypto") == ["BTC", "XRP"]
+    assert db.known_entities("other") == []
+
+
+def test_transcript_segments_round_trip(tmp_path):
+    db = Database(tmp_path / "v.db")
+    segments = [Segment(start_ms=0, text="hello"), Segment(start_ms=1500, text="world")]
+    db.save_summary(
+        video_id="v0",
+        title="t",
+        url="u",
+        published_at=None,
+        transcript="hello world",
+        prompt_name="p",
+        model="m",
+        ai_response="r",
+        tokens_input=1,
+        tokens_output=1,
+        cost_usd=0.0,
+        transcript_segments=segments_to_json(segments),
+    )
+    row = db.get_summary("v0")
+    assert segments_from_json(row["transcript_segments"]) == segments
