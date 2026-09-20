@@ -35,6 +35,15 @@ class Extraction:
 
 
 @dataclass(frozen=True)
+class AnswerResult:
+    text: str
+    tokens_input: int
+    tokens_output: int
+    cost_usd: float | None
+    stop_reason: str | None
+
+
+@dataclass(frozen=True)
 class SummaryResult:
     text: str
     tokens_input: int
@@ -76,6 +85,26 @@ def _api_errors(model: str):
 
 def _messages(transcript: str) -> list[dict]:
     return [{"role": "user", "content": transcript}]
+
+
+_ANSWER_SYSTEM = """You answer questions about what a YouTube channel said, using only the numbered sources below.
+
+Rules:
+- Use only the sources. If they do not answer the question, say so plainly.
+- Cite the sources you used as [n] right after the claim they support.
+- Give dates: a speaker's position changes over time, so say when something was said and call out changes of position.
+- Answer in Markdown, and keep it tight.
+
+Sources:
+"""
+
+
+def answer_messages(question: str) -> list[dict]:
+    return [{"role": "user", "content": question}]
+
+
+def answer_system(context: str) -> str:
+    return _ANSWER_SYSTEM + context
 
 
 def _extraction_schema(stance_labels: list[str]) -> dict:
@@ -307,4 +336,47 @@ class ClaudeSummarizer:
             cost_usd=self._cost(usage.input_tokens, usage.output_tokens),
             stop_reason=response.stop_reason,
             mentions=mentions,
+        )
+
+    def estimate_answer(
+        self, question: str, context: str, estimated_output_tokens: int
+    ) -> CostEstimate:
+        """Count the exact request the answer will send (free)."""
+        with _api_errors(self._model):
+            count = self._get_client().messages.count_tokens(
+                model=self._model,
+                system=answer_system(context),
+                messages=answer_messages(question),
+            )
+        return CostEstimate(
+            input_tokens=count.input_tokens,
+            estimated_output_tokens=estimated_output_tokens,
+            cost_usd=self._cost(count.input_tokens, estimated_output_tokens),
+        )
+
+    def answer(self, question: str, context: str) -> AnswerResult:
+        """Answer a question from the assembled sources, with [n] citations."""
+        with _api_errors(self._model):
+            with self._get_client().messages.stream(
+                model=self._model,
+                max_tokens=self._max_output_tokens,
+                system=answer_system(context),
+                messages=answer_messages(question),
+            ) as stream:
+                response = stream.get_final_message()
+
+        if response.stop_reason == "refusal":
+            raise SummarizerError("Claude declined to answer this question (stop_reason=refusal)")
+
+        text = "".join(block.text for block in response.content if block.type == "text").strip()
+        if not text:
+            raise SummarizerError(f"Claude returned no text (stop_reason={response.stop_reason})")
+
+        usage = response.usage
+        return AnswerResult(
+            text=text,
+            tokens_input=usage.input_tokens,
+            tokens_output=usage.output_tokens,
+            cost_usd=self._cost(usage.input_tokens, usage.output_tokens),
+            stop_reason=response.stop_reason,
         )

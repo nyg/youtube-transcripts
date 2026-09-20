@@ -13,7 +13,7 @@ from app.monitor import ChannelMonitor
 from yt_summarizer import notifications, transcripts, youtube_client
 from yt_summarizer.claude_client import CostEstimate, Extraction, SummaryResult
 from yt_summarizer.mentions import Mention
-from yt_summarizer.config import Config, MonitorConfig
+from yt_summarizer.config import AskConfig, Config, MonitorConfig
 from yt_summarizer.database import Database
 from yt_summarizer.youtube_client import Video
 
@@ -90,6 +90,7 @@ def _make_config(
         youtube_request_interval=0.0, cookies_file=None, model="claude-test",
         max_output_tokens=8192, pricing={},
         database=db_path, monitor=mon,
+        ask=AskConfig(max_context_tokens=100_000, estimated_output_tokens=1500),
     )
 
 

@@ -14,6 +14,16 @@ a local web app.
   you explicitly approve
 - Watch per-video progress while summaries are generated, then browse them
   with rendered Markdown and stored transcripts
+- Give a prompt an **entity kind and stance labels** (coin + bullish/bearish,
+  product + recommend/avoid, …) and every video also yields **structured
+  mentions**: entity, stance, confidence, quote and timestamp. The Mentions tab
+  shows the current stance per entity, flags changes, and links each quote to
+  the exact second in the video
+- **Search** transcripts and summaries (SQLite FTS5) with highlighted snippets
+  that link into the video where the words were spoken
+- **Ask** a question across many videos: the mentions, summaries and matching
+  transcript excerpts in the chosen period are sent to Claude, and the answer
+  cites the videos it used — with the same estimate-then-approve flow
 - Everything is stored in **SQLite** — videos are never processed twice
 
 ## Architecture

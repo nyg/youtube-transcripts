@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import types
 
+import pytest
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers import estimates, mentions, prompts, search, summaries
+from app.routers import estimates, mentions, prompts, questions, search, summaries
 from yt_summarizer.database import Database
 from yt_summarizer.mentions import Mention
 
@@ -238,3 +241,97 @@ def test_search_endpoint(tmp_path):
 
     assert client.get("/api/search", params={"q": "   "}).json() == []
     assert client.get("/api/search", params={"q": "staking", "channel_id": 9}).json() == []
+
+
+# --- ask across videos -------------------------------------------------------
+
+
+class _FakeAnswerer:
+    def __init__(self) -> None:
+        self.contexts: list[str] = []
+
+    def estimate_answer(self, question, context, estimated_output_tokens):
+        from yt_summarizer.claude_client import CostEstimate
+
+        self.contexts.append(context)
+        return CostEstimate(
+            input_tokens=len(context) // 4,
+            estimated_output_tokens=estimated_output_tokens,
+            cost_usd=0.25,
+        )
+
+    def answer(self, question, context):
+        from yt_summarizer.claude_client import AnswerResult
+
+        return AnswerResult(
+            text="Cardano turned bearish [1].",
+            tokens_input=1000,
+            tokens_output=200,
+            cost_usd=0.3,
+            stop_reason="end_turn",
+        )
+
+
+def _questions_client(db: Database, summarizer: _FakeAnswerer) -> TestClient:
+    app = FastAPI()
+    app.state.db = db
+    app.state.summarizer = summarizer
+    app.state.config = SimpleNamespace(
+        model="claude-test",
+        ask=SimpleNamespace(max_context_tokens=100_000, estimated_output_tokens=1500),
+    )
+    from app.estimates import EstimateStore
+
+    app.state.questions = EstimateStore()
+    app.include_router(questions.router)
+    return TestClient(app)
+
+
+def test_question_estimate_then_answer_is_stored(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _seed_mentions(db, "v0", "2026-09-09T10:00:00+00:00", ("Cardano", "bearish"))
+    summarizer = _FakeAnswerer()
+    client = _questions_client(db, summarizer)
+
+    estimate = client.post(
+        "/api/questions/estimate", json={"question": "What about Cardano?", "channel_id": 7}
+    )
+    assert estimate.status_code == 200
+    body = estimate.json()
+    assert body["mention_count"] == 1 and body["summary_count"] == 1
+    assert body["cost_usd"] == 0.25
+    assert "Cardano: bearish" in summarizer.contexts[0]
+
+    answered = client.post("/api/questions", json={"estimate_id": body["estimate_id"]})
+    assert answered.status_code == 200
+    assert answered.json()["answer"] == "Cardano turned bearish [1]."
+    assert answered.json()["sources"][0]["kind"] == "mention"
+
+    # The estimate is consumed, so re-approving it is a 410.
+    assert client.post(
+        "/api/questions", json={"estimate_id": body["estimate_id"]}
+    ).status_code == 410
+
+    listed = client.get("/api/questions", params={"channel_id": 7}).json()
+    assert [q["question"] for q in listed] == ["What about Cardano?"]
+    assert client.delete(f"/api/questions/{listed[0]['id']}").status_code == 204
+    assert client.get("/api/questions").json() == []
+
+
+def test_question_estimate_422_without_sources(tmp_path):
+    client = _questions_client(Database(tmp_path / "v.db"), _FakeAnswerer())
+    r = client.post("/api/questions/estimate", json={"question": "anything?"})
+    assert r.status_code == 422
+    assert "Nothing to answer from" in r.json()["detail"]
+
+
+def test_question_cost_counts_toward_daily_spend(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _seed_mentions(db, "v0", "2026-09-09T10:00:00+00:00", ("Cardano", "bearish"))
+    client = _questions_client(db, _FakeAnswerer())
+
+    before = db.spend_since("1970-01-01T00:00:00+00:00")
+    estimate = client.post("/api/questions/estimate", json={"question": "Cardano?"}).json()
+    client.post("/api/questions", json={"estimate_id": estimate["estimate_id"]})
+
+    assert db.spend_since("1970-01-01T00:00:00+00:00") == pytest.approx(before + 0.3)

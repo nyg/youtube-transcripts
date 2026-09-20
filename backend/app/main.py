@@ -29,6 +29,7 @@ from .routers import (
     meta,
     monitor,
     prompts,
+    questions,
     search,
     summaries,
 )
@@ -115,6 +116,7 @@ async def lifespan(app: FastAPI):
     app.state.db = db
     app.state.summarizer = ClaudeSummarizer(cfg.model, cfg.max_output_tokens, cfg.pricing)
     app.state.estimates = EstimateStore()
+    app.state.questions = EstimateStore()
     app.state.jobs = JobRegistry()
     app.state.monitor = ChannelMonitor(cfg, db, app.state.summarizer, app.state.jobs)
     if cfg.monitor.enabled:
@@ -150,5 +152,6 @@ for router_module in (
     summaries,
     mentions,
     search,
+    questions,
 ):
     app.include_router(router_module.router)

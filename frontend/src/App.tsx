@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 
 import { useChannels } from "@/api/queries"
 import { ChannelManagerDialog } from "@/components/ChannelManagerDialog"
+import { AskTab } from "@/components/AskTab"
 import { ChannelSelect } from "@/components/ChannelSelect"
 import { MentionsTab } from "@/components/MentionsTab"
 import { MonitorStatus } from "@/components/MonitorStatus"
@@ -71,6 +72,7 @@ function App() {
             <TabsTrigger value="summaries">Summaries</TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="search">Search</TabsTrigger>
+            <TabsTrigger value="ask">Ask</TabsTrigger>
           </TabsList>
           <TabsContent value="process">
             <ProcessTab key={channelId} channelId={channelId} />
@@ -83,6 +85,9 @@ function App() {
           </TabsContent>
           <TabsContent value="search">
             <SearchTab key={channelId} channelId={channelId} />
+          </TabsContent>
+          <TabsContent value="ask">
+            <AskTab key={channelId} channelId={channelId} />
           </TabsContent>
         </Tabs>
       )}

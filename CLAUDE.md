@@ -18,7 +18,7 @@ backend/   FastAPI + uvicorn                               (API server :8000)
            ├── app/            REST API (routers/), estimate store, job worker
            │   ├── main.py         lifespan wiring: config, db, prompt bootstrap, jobs
            │   ├── routers/        channels, prompts, estimates, jobs, summaries,
-           │   │                   mentions, search, meta
+           │   │                   mentions, search, questions, meta
            │   ├── jobs.py         in-memory job registry + background worker
            │   ├── estimates.py    in-memory store carrying estimates -> jobs
            │   ├── prompts.py      resolves a prompt row -> Extraction spec
@@ -30,6 +30,7 @@ backend/   FastAPI + uvicorn                               (API server :8000)
                ├── transcripts.py  caption track selection + json3 parsing (timed)
                ├── mentions.py     the Mention record + entity_key normalization
                ├── chunking.py     search chunks + FTS5 query escaping
+               ├── analysis.py     context assembly for cross-video questions
                ├── claude_client.py token counting, estimation, summarization
                ├── markdown_email.py  Markdown -> inline-styled HTML for digests
                ├── notifications.py   Resend transport
@@ -189,6 +190,20 @@ turns the supported constructs back into tags, so raw HTML in model output can
 never reach a recipient; keep that ordering if you extend it. Mail clients drop
 `<style>` blocks, so every tag it emits carries an inline `style`. Subjects name
 the video when a digest holds exactly one (`monitor._build_subject`).
+
+**Ask reuses the estimate-then-approve contract.** `analysis.build_context`
+assembles numbered sources from the DB alone (no API call): mentions in range
+first, then summaries up to 60% of the remaining budget, then FTS transcript
+excerpts for the question's terms (question words are dropped by
+`analysis.search_terms`, and the excerpt query runs in OR mode). The budget is
+`ask.max_context_tokens`, approximated at 4 characters per token. The estimate
+counts that exact request, the prepared context is held in a second
+`EstimateStore` (now generic) and consumed on approval, so the approved cost is
+what is billed and a stale id is a 410, as with video jobs. Answers are stored
+in `questions` with their sources, and **`spend_since` sums `video_summaries`
+and `questions`**, so asking counts toward the monitor's daily budget. The
+answer cites sources as `[n]`; the client rewrites those into links, so keep the
+marker format if you change the prompt.
 
 **Jobs & estimates are in-memory.** Only one summarization job runs at a time
 (`JobRegistry`). Estimates are stored in memory and consumed on approval

@@ -42,6 +42,14 @@ class MonitorConfig:
 
 
 @dataclass(frozen=True)
+class AskConfig:
+    """Settings for cross-video questions (see analysis.py)."""
+
+    max_context_tokens: int
+    estimated_output_tokens: int
+
+
+@dataclass(frozen=True)
 class Config:
     max_videos_fetch: int
     transcript_languages: tuple[str, ...]
@@ -52,6 +60,7 @@ class Config:
     pricing: dict[str, ModelPricing]
     database: Path
     monitor: MonitorConfig
+    ask: AskConfig
 
 
 def load_config(path: Path) -> Config:
@@ -81,6 +90,7 @@ def load_config(path: Path) -> Config:
             ) from exc
 
     monitor = _parse_monitor(raw.get("monitoring") if raw.get("monitoring") is not None else {})
+    ask = _parse_ask(raw.get("ask") if raw.get("ask") is not None else {})
 
     return Config(
         max_videos_fetch=int(raw.get("max_videos_fetch", 25)),
@@ -92,7 +102,25 @@ def load_config(path: Path) -> Config:
         pricing=pricing,
         database=paths.resolve_database_path(raw.get("database")),
         monitor=monitor,
+        ask=ask,
     )
+
+
+def _parse_ask(raw: object) -> AskConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("'ask' must be a mapping")
+    try:
+        ask = AskConfig(
+            max_context_tokens=int(raw.get("max_context_tokens", 100_000)),
+            estimated_output_tokens=int(raw.get("estimated_output_tokens", 1500)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("'ask' values must be whole numbers") from exc
+    if ask.max_context_tokens < 1000:
+        raise ConfigError("ask.max_context_tokens must be at least 1000")
+    if ask.estimated_output_tokens < 1:
+        raise ConfigError("ask.estimated_output_tokens must be at least 1")
+    return ask
 
 
 def _parse_monitor(raw: object) -> MonitorConfig:

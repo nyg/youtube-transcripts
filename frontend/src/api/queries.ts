@@ -14,6 +14,8 @@ import type {
   Mention,
   Meta,
   Prompt,
+  Question,
+  QuestionEstimate,
   SearchHit,
   Summary,
   SummaryDetail,
@@ -258,5 +260,54 @@ export function useSearch(
       api<SearchHit[]>(`/api/search${query({ q: trimmed, channel_id: channelId, since })}`),
     enabled: trimmed.length > 1,
     placeholderData: (previous) => previous,
+  })
+}
+
+export function useQuestions(channelId: number | undefined) {
+  return useQuery({
+    queryKey: ["questions", channelId ?? "all"],
+    queryFn: () => api<Question[]>(`/api/questions${query({ channel_id: channelId })}`),
+  })
+}
+
+export function useEstimateQuestion() {
+  return useMutation({
+    mutationFn: (vars: {
+      question: string
+      channelId: number | undefined
+      since?: string
+    }) =>
+      api<QuestionEstimate>("/api/questions/estimate", {
+        method: "POST",
+        body: JSON.stringify({
+          question: vars.question,
+          channel_id: vars.channelId ?? null,
+          since: vars.since ?? null,
+        }),
+      }),
+  })
+}
+
+export function useAskQuestion() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (estimateId: string) =>
+      api<Question>("/api/questions", {
+        method: "POST",
+        body: JSON.stringify({ estimate_id: estimateId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["questions"] })
+      queryClient.invalidateQueries({ queryKey: ["meta"] })
+    },
+  })
+}
+
+export function useDeleteQuestion() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (questionId: number) =>
+      api<void>(`/api/questions/${questionId}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["questions"] }),
   })
 }

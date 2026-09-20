@@ -25,6 +25,43 @@ export interface Mention {
   url: string | null
 }
 
+export interface Source {
+  number: number
+  kind: "mention" | "summary" | "excerpt"
+  video_id: string
+  title: string
+  url: string
+  published_at: string | null
+  start_seconds: number | null
+}
+
+export interface QuestionEstimate {
+  estimate_id: string
+  model: string
+  question: string
+  mention_count: number
+  summary_count: number
+  excerpt_count: number
+  input_tokens: number
+  estimated_output_tokens: number
+  cost_usd: number | null
+}
+
+export interface Question {
+  id: number
+  channel_id: number | null
+  question: string
+  since: string | null
+  until: string | null
+  answer: string
+  sources: Source[]
+  model: string
+  tokens_input: number | null
+  tokens_output: number | null
+  cost_usd: number | null
+  created_at: string
+}
+
 export interface SearchHit {
   video_id: string
   kind: "transcript" | "summary"
