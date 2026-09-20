@@ -11,12 +11,16 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
+from yt_summarizer.analysis import Source
 from yt_summarizer.claude_client import CostEstimate, Extraction
 from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video
 
 _MAX_ENTRIES = 20
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -36,10 +40,29 @@ class PreparedEstimate:
     items: dict[str, PreparedVideo]  # keyed by video_id, insertion-ordered
 
 
-class EstimateStore:
+@dataclass(frozen=True)
+class PreparedQuestion:
+    estimate_id: str
+    channel_id: int | None
+    question: str
+    since: str | None
+    until: str | None
+    context: str
+    sources: list[Source]
+    estimate: CostEstimate
+
+
+class EstimateStore(Generic[T]):
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._entries: dict[str, PreparedEstimate] = {}
+        self._entries: dict[str, T] = {}
+
+    def add(self, estimate_id: str, entry: T) -> str:
+        with self._lock:
+            self._entries[estimate_id] = entry
+            while len(self._entries) > _MAX_ENTRIES:
+                self._entries.pop(next(iter(self._entries)))
+        return estimate_id
 
     def put(
         self,
@@ -54,17 +77,13 @@ class EstimateStore:
         entry = PreparedEstimate(
             estimate_id, channel_id, prompt_name, prompt_text, extraction, items
         )
-        with self._lock:
-            self._entries[estimate_id] = entry
-            while len(self._entries) > _MAX_ENTRIES:
-                self._entries.pop(next(iter(self._entries)))
-        return estimate_id
+        return self.add(estimate_id, entry)  # type: ignore[arg-type]
 
-    def pop(self, estimate_id: str) -> PreparedEstimate | None:
+    def pop(self, estimate_id: str) -> T | None:
         with self._lock:
             return self._entries.pop(estimate_id, None)
 
-    def restore(self, entry: PreparedEstimate) -> None:
+    def restore(self, entry) -> None:
         """Put back an entry popped by a job creation that was refused."""
         with self._lock:
             self._entries[entry.estimate_id] = entry

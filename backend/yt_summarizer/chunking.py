@@ -54,7 +54,7 @@ def build_chunks(
     return chunks
 
 
-def fts_query(text: str) -> str | None:
+def fts_query(text: str, mode: str = "and") -> str | None:
     terms: list[str] = []
     for raw in _TOKEN.findall(text):
         if raw.startswith('"'):
@@ -67,6 +67,8 @@ def fts_query(text: str) -> str | None:
             terms.append('"' + " ".join(words) + '"')
     if not terms:
         return None
+    if mode == "or":
+        return " OR ".join(terms)
     if not text.rstrip().endswith('"'):
         terms[-1] += "*"
     return " ".join(terms)

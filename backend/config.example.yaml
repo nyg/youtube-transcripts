@@ -75,6 +75,22 @@ monitoring:
   subject_prefix: "New video summaries"
 
 # ---------------------------------------------------------------------------
+# Ask across videos
+# ---------------------------------------------------------------------------
+# The "Ask" tab answers a question from what a channel already said: the
+# extracted mentions, the stored summaries and matching transcript excerpts in
+# the chosen period are sent to Claude, which answers with [n] citations. Every
+# question is estimated and approved before it is billed, exactly like
+# summarization.
+ask:
+  # Ceiling on the context sent with a question. More context costs more per
+  # question: at $5 / 1M input tokens, 100k tokens is about $0.50.
+  max_context_tokens: 100000
+
+  # Assumed answer length, used for the cost estimate only.
+  estimated_output_tokens: 1500
+
+# ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 # Where the SQLite database lives. Leave unset to use the XDG data directory

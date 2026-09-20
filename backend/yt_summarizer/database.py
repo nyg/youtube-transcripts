@@ -66,6 +66,21 @@ CREATE TABLE IF NOT EXISTS mentions (
 CREATE INDEX IF NOT EXISTS mentions_entity ON mentions (entity_key, published_at);
 CREATE INDEX IF NOT EXISTS mentions_video ON mentions (video_id);
 
+CREATE TABLE IF NOT EXISTS questions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id    INTEGER,
+    question      TEXT NOT NULL,
+    since         TEXT,
+    until         TEXT,
+    answer        TEXT NOT NULL,
+    sources       TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    tokens_input  INTEGER,
+    tokens_output INTEGER,
+    cost_usd      REAL,
+    created_at    TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
     text,
     video_id UNINDEXED,
@@ -300,9 +315,12 @@ class Database:
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(cost_usd), 0) AS total FROM video_summaries "
-                "WHERE processed_at >= ?",
-                (iso_start,),
+                "SELECT COALESCE(("
+                "  SELECT SUM(cost_usd) FROM video_summaries WHERE processed_at >= ?"
+                "), 0) + COALESCE(("
+                "  SELECT SUM(cost_usd) FROM questions WHERE created_at >= ?"
+                "), 0) AS total",
+                (iso_start, iso_start),
             ).fetchone()
         return float(row["total"] or 0.0)
 
@@ -557,13 +575,14 @@ class Database:
         channel_id: int | None = None,
         since: str | None = None,
         limit: int = 50,
+        mode: str = "and",
     ) -> list[sqlite3.Row]:
-        match = fts_query(text)
+        match = fts_query(text, mode)
         if match is None:
             return []
         query = (
             "SELECT chunks.video_id AS video_id, chunks.kind AS kind, "
-            "chunks.start_seconds AS start_seconds, "
+            "chunks.start_seconds AS start_seconds, chunks.text AS text, "
             "snippet(chunks, 0, char(2), char(3), '…', 24) AS snippet, "
             "bm25(chunks) AS rank, v.title AS title, v.url AS url, "
             "v.published_at AS published_at, v.channel_id AS channel_id "
@@ -581,3 +600,61 @@ class Database:
         params.append(limit)
         with self._connect() as conn:
             return conn.execute(query, params).fetchall()
+
+    # -- questions ---------------------------------------------------------
+
+    def save_question(
+        self,
+        *,
+        channel_id: int | None,
+        question: str,
+        since: str | None,
+        until: str | None,
+        answer: str,
+        sources: list[dict],
+        model: str,
+        tokens_input: int,
+        tokens_output: int,
+        cost_usd: float | None,
+    ) -> sqlite3.Row:
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO questions (channel_id, question, since, until, answer, sources, "
+                "model, tokens_input, tokens_output, cost_usd, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    channel_id,
+                    question,
+                    since,
+                    until,
+                    answer,
+                    json.dumps(sources),
+                    model,
+                    tokens_input,
+                    tokens_output,
+                    cost_usd,
+                    created_at,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM questions WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        assert row is not None
+        return row
+
+    def list_questions(self, channel_id: int | None = None, limit: int = 50) -> list[sqlite3.Row]:
+        query = "SELECT * FROM questions"
+        params: list[object] = []
+        if channel_id is not None:
+            query += " WHERE channel_id = ?"
+            params.append(channel_id)
+        query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            return conn.execute(query, params).fetchall()
+
+    def delete_question(self, question_id: int) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM questions WHERE id = ?", (question_id,))
+        return cursor.rowcount > 0

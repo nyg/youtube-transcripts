@@ -169,6 +169,54 @@ class EntityOut(BaseModel):
     video_count: int
 
 
+class QuestionRequest(BaseModel):
+    question: str = Field(min_length=1)
+    channel_id: int | None = None  # None = every channel
+    since: str | None = None  # UTC ISO 8601
+    until: str | None = None
+
+
+class QuestionAsk(BaseModel):
+    estimate_id: str
+
+
+class SourceOut(BaseModel):
+    number: int
+    kind: Literal["mention", "summary", "excerpt"]
+    video_id: str
+    title: str
+    url: str
+    published_at: str | None
+    start_seconds: int | None = None
+
+
+class QuestionEstimateOut(BaseModel):
+    estimate_id: str
+    model: str
+    question: str
+    mention_count: int
+    summary_count: int
+    excerpt_count: int
+    input_tokens: int
+    estimated_output_tokens: int
+    cost_usd: float | None
+
+
+class QuestionOut(BaseModel):
+    id: int
+    channel_id: int | None
+    question: str
+    since: str | None
+    until: str | None
+    answer: str
+    sources: list[SourceOut]
+    model: str
+    tokens_input: int | None
+    tokens_output: int | None
+    cost_usd: float | None
+    created_at: str
+
+
 class SearchHitOut(BaseModel):
     video_id: str
     kind: Literal["transcript", "summary"]
