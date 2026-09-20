@@ -9,7 +9,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .chunking import Chunk, build_chunks, fts_query
 from .mentions import Mention, entity_key
+from .transcripts import segments_from_json
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS video_summaries (
@@ -63,7 +65,23 @@ CREATE TABLE IF NOT EXISTS mentions (
 
 CREATE INDEX IF NOT EXISTS mentions_entity ON mentions (entity_key, published_at);
 CREATE INDEX IF NOT EXISTS mentions_video ON mentions (video_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
+    text,
+    video_id UNINDEXED,
+    kind UNINDEXED,
+    start_seconds UNINDEXED,
+    tokenize='porter unicode61 remove_diacritics 2'
+);
 """
+
+
+def _replace_chunks(conn: sqlite3.Connection, video_id: str, chunks: Sequence[Chunk]) -> None:
+    conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+    conn.executemany(
+        "INSERT INTO chunks (text, video_id, kind, start_seconds) VALUES (?, ?, ?, ?)",
+        [(chunk.text, video_id, chunk.kind, chunk.start_seconds) for chunk in chunks],
+    )
 
 
 class Database:
@@ -357,6 +375,11 @@ class Database:
                 ),
             )
             conn.execute("DELETE FROM mentions WHERE video_id = ?", (video_id,))
+            _replace_chunks(
+                conn,
+                video_id,
+                build_chunks(transcript, segments_from_json(transcript_segments), ai_response),
+            )
             conn.executemany(
                 """
                 INSERT INTO mentions (
@@ -402,6 +425,7 @@ class Database:
                 "DELETE FROM video_summaries WHERE video_id = ?", (video_id,)
             )
             conn.execute("DELETE FROM mentions WHERE video_id = ?", (video_id,))
+            conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
         return cursor.rowcount > 0
 
     # -- mentions ----------------------------------------------------------
@@ -503,3 +527,57 @@ class Database:
             return conn.execute(
                 "SELECT * FROM video_summaries WHERE video_id = ?", (video_id,)
             ).fetchone()
+
+    # -- search ------------------------------------------------------------
+
+    def backfill_chunks(self) -> int:
+        with self._connect() as conn:
+            indexed = {row[0] for row in conn.execute("SELECT DISTINCT video_id FROM chunks")}
+            rows = conn.execute(
+                "SELECT video_id, transcript, transcript_segments, ai_response "
+                "FROM video_summaries"
+            ).fetchall()
+            missing = [row for row in rows if row["video_id"] not in indexed]
+            for row in missing:
+                _replace_chunks(
+                    conn,
+                    row["video_id"],
+                    build_chunks(
+                        row["transcript"],
+                        segments_from_json(row["transcript_segments"]),
+                        row["ai_response"],
+                    ),
+                )
+        return len(missing)
+
+    def search(
+        self,
+        text: str,
+        *,
+        channel_id: int | None = None,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> list[sqlite3.Row]:
+        match = fts_query(text)
+        if match is None:
+            return []
+        query = (
+            "SELECT chunks.video_id AS video_id, chunks.kind AS kind, "
+            "chunks.start_seconds AS start_seconds, "
+            "snippet(chunks, 0, char(2), char(3), '…', 24) AS snippet, "
+            "bm25(chunks) AS rank, v.title AS title, v.url AS url, "
+            "v.published_at AS published_at, v.channel_id AS channel_id "
+            "FROM chunks JOIN video_summaries v ON v.video_id = chunks.video_id "
+            "WHERE chunks MATCH ?"
+        )
+        params: list[object] = [match]
+        if channel_id is not None:
+            query += " AND v.channel_id = ?"
+            params.append(channel_id)
+        if since:
+            query += " AND COALESCE(v.published_at, v.processed_at) >= ?"
+            params.append(since)
+        query += " ORDER BY rank LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            return conn.execute(query, params).fetchall()

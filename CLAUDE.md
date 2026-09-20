@@ -18,7 +18,7 @@ backend/   FastAPI + uvicorn                               (API server :8000)
            ├── app/            REST API (routers/), estimate store, job worker
            │   ├── main.py         lifespan wiring: config, db, prompt bootstrap, jobs
            │   ├── routers/        channels, prompts, estimates, jobs, summaries,
-           │   │                   mentions, meta
+           │   │                   mentions, search, meta
            │   ├── jobs.py         in-memory job registry + background worker
            │   ├── estimates.py    in-memory store carrying estimates -> jobs
            │   ├── prompts.py      resolves a prompt row -> Extraction spec
@@ -29,6 +29,7 @@ backend/   FastAPI + uvicorn                               (API server :8000)
                ├── youtube_client.py  yt-dlp listing, RSS date enrichment
                ├── transcripts.py  caption track selection + json3 parsing (timed)
                ├── mentions.py     the Mention record + entity_key normalization
+               ├── chunking.py     search chunks + FTS5 query escaping
                ├── claude_client.py token counting, estimation, summarization
                ├── markdown_email.py  Markdown -> inline-styled HTML for digests
                ├── notifications.py   Resend transport
@@ -127,6 +128,19 @@ and `transcript_segments` (JSON). Extraction prompts are sent
 the UI can deep-link with `&t=Ns`; plain prompts still get the flat text, so their
 cost is unchanged. Rows saved before this have no segments: they render flat and
 their mentions have no timestamp.
+
+**Search is SQLite FTS5, and the index is derived state.** `chunks` is a plain
+FTS5 virtual table (no external-content triggers) holding ~60-second transcript
+windows plus one chunk per summary; `video_id`, `kind` and `start_seconds` are
+UNINDEXED columns. `save_summary` rebuilds a video's chunks in its transaction and
+`delete_summary` drops them, so the index never drifts from the summaries.
+`Database.backfill_chunks()` runs in the app lifespan and indexes rows that have
+no chunks yet — local, free and idempotent, which is how older installs get
+search. User input never reaches `MATCH` raw: `chunking.fts_query` keeps
+`"phrases"`, quotes every other token and prefix-matches the last one, so FTS5
+operators and punctuation are inert. Hits come back with `snippet()` highlights
+delimited by \x02/\x03 — control characters, not HTML, so the client marks them
+without `dangerouslySetInnerHTML`.
 
 **Dates: store/serve UTC, render local.** The backend emits every timestamp as
 timezone-aware **UTC ISO 8601** (`youtube_client._utc_iso`, DB `*_at` columns).

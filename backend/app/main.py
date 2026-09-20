@@ -29,6 +29,7 @@ from .routers import (
     meta,
     monitor,
     prompts,
+    search,
     summaries,
 )
 
@@ -107,6 +108,9 @@ async def lifespan(app: FastAPI):
     log.info("Using database at %s", cfg.database)
     db = Database(cfg.database)
     _bootstrap_prompts(db, config_file)
+    indexed = db.backfill_chunks()
+    if indexed:
+        log.info("Indexed %d stored summar(ies) for search", indexed)
     app.state.config = cfg
     app.state.db = db
     app.state.summarizer = ClaudeSummarizer(cfg.model, cfg.max_output_tokens, cfg.pricing)
@@ -145,5 +149,6 @@ for router_module in (
     monitor,
     summaries,
     mentions,
+    search,
 ):
     app.include_router(router_module.router)

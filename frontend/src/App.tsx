@@ -7,6 +7,7 @@ import { MentionsTab } from "@/components/MentionsTab"
 import { MonitorStatus } from "@/components/MonitorStatus"
 import { ProcessTab } from "@/components/ProcessTab"
 import { PromptManagerDialog } from "@/components/PromptManagerDialog"
+import { SearchTab } from "@/components/SearchTab"
 import { SummaryList } from "@/components/SummaryList"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -69,6 +70,7 @@ function App() {
             <TabsTrigger value="process">Process videos</TabsTrigger>
             <TabsTrigger value="summaries">Summaries</TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
+            <TabsTrigger value="search">Search</TabsTrigger>
           </TabsList>
           <TabsContent value="process">
             <ProcessTab key={channelId} channelId={channelId} />
@@ -78,6 +80,9 @@ function App() {
           </TabsContent>
           <TabsContent value="mentions">
             <MentionsTab key={channelId} channelId={channelId} />
+          </TabsContent>
+          <TabsContent value="search">
+            <SearchTab key={channelId} channelId={channelId} />
           </TabsContent>
         </Tabs>
       )}

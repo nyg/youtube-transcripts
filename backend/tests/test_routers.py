@@ -12,7 +12,7 @@ import types
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers import estimates, mentions, prompts, summaries
+from app.routers import estimates, mentions, prompts, search, summaries
 from yt_summarizer.database import Database
 from yt_summarizer.mentions import Mention
 
@@ -212,3 +212,29 @@ def test_summaries_carry_their_mentions(tmp_path):
 
     detail = client.get("/api/summaries/v0").json()
     assert detail["mentions"][0]["stance"] == "bullish"
+
+
+def _search_client(db: Database) -> TestClient:
+    app = FastAPI()
+    app.state.db = db
+    app.include_router(search.router)
+    return TestClient(app)
+
+
+def test_search_endpoint(tmp_path):
+    db = Database(tmp_path / "v.db")
+    db.save_summary(
+        video_id="v0", title="Merge explained", url="https://y/v0",
+        published_at="2026-09-01T10:00:00+00:00",
+        transcript="the ethereum merge changed staking forever",
+        prompt_name="p", model="m", ai_response="Ethereum staking recap",
+        tokens_input=1, tokens_output=2, cost_usd=0.1, channel_id=4,
+    )
+    client = _search_client(db)
+
+    hits = client.get("/api/search", params={"q": "staking"}).json()
+    assert {hit["kind"] for hit in hits} == {"transcript", "summary"}
+    assert hits[0]["title"] == "Merge explained"
+
+    assert client.get("/api/search", params={"q": "   "}).json() == []
+    assert client.get("/api/search", params={"q": "staking", "channel_id": 9}).json() == []

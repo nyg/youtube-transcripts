@@ -267,3 +267,71 @@ def test_transcript_segments_round_trip(tmp_path):
     )
     row = db.get_summary("v0")
     assert segments_from_json(row["transcript_segments"]) == segments
+
+
+# --- full-text search --------------------------------------------------------
+
+
+def _save_searchable(db: Database, video_id: str, transcript: str, summary: str) -> None:
+    db.save_summary(
+        video_id=video_id,
+        title=f"Video {video_id}",
+        url=f"https://www.youtube.com/watch?v={video_id}",
+        published_at="2026-09-01T10:00:00+00:00",
+        transcript=transcript,
+        prompt_name="p",
+        model="m",
+        ai_response=summary,
+        tokens_input=1,
+        tokens_output=1,
+        cost_usd=0.0,
+        channel_id=3,
+        transcript_segments=segments_to_json(
+            [Segment(start_ms=0, text=transcript[:20]), Segment(start_ms=90_000, text=transcript)]
+        ),
+    )
+
+
+def test_search_returns_highlighted_snippets_with_timestamps(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save_searchable(db, "v0", "the ethereum merge changed staking forever", "About staking")
+
+    hits = db.search("staking")
+    assert [hit["kind"] for hit in hits] == ["transcript", "summary"] or [
+        hit["kind"] for hit in hits
+    ] == ["summary", "transcript"]
+    transcript_hit = next(hit for hit in hits if hit["kind"] == "transcript")
+    assert transcript_hit["start_seconds"] == 90
+    assert "\x02staking\x03" in transcript_hit["snippet"]
+    assert transcript_hit["title"] == "Video v0"
+
+
+def test_search_scopes_by_channel_and_ignores_operators(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save_searchable(db, "v0", "solana fees keep climbing", "Solana fees")
+
+    assert db.search("solana", channel_id=3)
+    assert db.search("solana", channel_id=99) == []
+    assert db.search("solana OR (") == []
+    assert db.search("   ") == []
+
+
+def test_reprocessing_and_deleting_keep_the_index_in_step(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _save_searchable(db, "v0", "cardano keeps missing deadlines", "Cardano delays")
+    _save_searchable(db, "v0", "cardano ships vasil", "Cardano ships")
+
+    assert db.search("deadlines") == []
+    assert db.search("vasil")
+
+    db.delete_summary("v0")
+    assert db.search("vasil") == []
+
+
+def test_backfill_chunks_indexes_rows_once(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _insert(db, "old", 0.1, _midnight_iso())
+
+    assert db.backfill_chunks() == 1
+    assert db.backfill_chunks() == 0
+    assert [hit["video_id"] for hit in db.search("x")] == ["old"]
