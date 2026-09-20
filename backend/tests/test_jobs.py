@@ -10,7 +10,12 @@ from app.jobs import JobConflictError, JobRegistry
 
 def _empty_estimate() -> PreparedEstimate:
     return PreparedEstimate(
-        estimate_id="e", channel_id=1, prompt_name="p", prompt_text="t", items={}
+        estimate_id="e",
+        channel_id=1,
+        prompt_name="p",
+        prompt_text="t",
+        extraction=None,
+        items={},
     )
 
 

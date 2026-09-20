@@ -11,10 +11,17 @@ import pytest
 from app.jobs import JobRegistry
 from app.monitor import ChannelMonitor
 from yt_summarizer import notifications, transcripts, youtube_client
-from yt_summarizer.claude_client import CostEstimate, SummaryResult
+from yt_summarizer.claude_client import CostEstimate, Extraction, SummaryResult
+from yt_summarizer.mentions import Mention
 from yt_summarizer.config import Config, MonitorConfig
 from yt_summarizer.database import Database
 from yt_summarizer.youtube_client import Video
+
+
+def _transcript(text: str = "transcript") -> transcripts.Transcript:
+    return transcripts.Transcript(
+        text=text, segments=[transcripts.Segment(start_ms=0, text=text)]
+    )
 
 
 class FakeSummarizer:
@@ -22,23 +29,41 @@ class FakeSummarizer:
 
     max_output_tokens = 8192
 
-    def __init__(self, worst: float, actual: float, text: str = "A summary") -> None:
+    def __init__(
+        self,
+        worst: float,
+        actual: float,
+        text: str = "A summary",
+        mentions: list[Mention] | None = None,
+    ) -> None:
         self._worst = worst
         self._actual = actual
         self._text = text
+        self._mentions = mentions or []
         self.summarize_calls = 0
+        self.extractions: list[Extraction | None] = []
 
-    def estimate(self, prompt: str, transcript: str, estimated_output_tokens: int) -> CostEstimate:
+    def estimate(
+        self,
+        prompt: str,
+        transcript,
+        estimated_output_tokens: int,
+        extraction: Extraction | None = None,
+    ) -> CostEstimate:
         return CostEstimate(input_tokens=1000, estimated_output_tokens=estimated_output_tokens,
                             cost_usd=0.01)
 
     def cost(self, tokens_input: int, tokens_output: int) -> float:
         return self._worst
 
-    def summarize(self, prompt: str, transcript: str) -> SummaryResult:
+    def summarize(
+        self, prompt: str, transcript, extraction: Extraction | None = None
+    ) -> SummaryResult:
         self.summarize_calls += 1
+        self.extractions.append(extraction)
         return SummaryResult(text=self._text, tokens_input=1000, tokens_output=500,
-                             cost_usd=self._actual, stop_reason="end_turn")
+                             cost_usd=self._actual, stop_reason="end_turn",
+                             mentions=list(self._mentions))
 
 
 def _make_config(
@@ -83,7 +108,9 @@ def _video(vid: str, published_at: str | None) -> Video:
 def _patch_youtube(monkeypatch, videos: list[Video]) -> None:
     monkeypatch.setattr(youtube_client, "list_recent_videos", lambda inp, n: videos)
     monkeypatch.setattr(youtube_client, "fetch_video_details", lambda v: (v, {"info": True}))
-    monkeypatch.setattr(transcripts, "fetch_transcript", lambda info, vid, langs: "transcript")
+    monkeypatch.setattr(
+        transcripts, "fetch_transcript", lambda info, vid, langs: _transcript()
+    )
 
 
 def test_budget_gate_defers_remaining(tmp_path, monkeypatch):
@@ -171,9 +198,11 @@ def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
     seen: dict[str, str] = {}
 
     class RecordingSummarizer(FakeSummarizer):
-        def summarize(self, prompt: str, transcript: str) -> SummaryResult:
+        def summarize(
+            self, prompt: str, transcript, extraction: Extraction | None = None
+        ) -> SummaryResult:
             seen["prompt"] = prompt
-            return super().summarize(prompt, transcript)
+            return super().summarize(prompt, transcript, extraction)
 
     ChannelMonitor(cfg, db, RecordingSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
 
@@ -237,7 +266,9 @@ def test_digest_grouped_per_channel(tmp_path, monkeypatch):
     per_channel = {"@a": [_video("va", None)], "@b": [_video("vb", None)]}
     monkeypatch.setattr(youtube_client, "list_recent_videos", lambda inp, n: per_channel[inp])
     monkeypatch.setattr(youtube_client, "fetch_video_details", lambda v: (v, {"info": True}))
-    monkeypatch.setattr(transcripts, "fetch_transcript", lambda info, vid, langs: "transcript")
+    monkeypatch.setattr(
+        transcripts, "fetch_transcript", lambda info, vid, langs: _transcript()
+    )
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
@@ -366,3 +397,39 @@ def test_no_email_when_nothing_new(tmp_path, monkeypatch):
 
     assert result.summarized == 0
     assert calls == []
+
+
+def test_prompt_with_stance_labels_extracts_and_saves_mentions(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("crypto", "sys", 2000, entity_kind="coin", stance_labels=["bullish", "bearish"])
+    db.add_channel("@chan", "Chan", "crypto")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    summarizer = FakeSummarizer(
+        0.1, 0.1, mentions=[Mention("BTC", "bullish", "high", "why", "quote", 12)]
+    )
+
+    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+
+    extraction = summarizer.extractions[0]
+    assert extraction is not None
+    assert extraction.entity_kind == "coin"
+    assert extraction.stance_labels == ["bullish", "bearish"]
+    rows = db.list_mentions()
+    assert [(row["entity"], row["stance"], row["timestamp_seconds"]) for row in rows] == [
+        ("BTC", "bullish", 12)
+    ]
+
+
+def test_prompt_without_stance_labels_does_not_extract(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("plain", "sys", 2000)
+    db.add_channel("@chan", "Chan", "plain")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    summarizer = FakeSummarizer(0.1, 0.1)
+
+    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+
+    assert summarizer.extractions == [None]
+    assert db.list_mentions() == []

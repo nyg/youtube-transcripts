@@ -56,6 +56,8 @@ export function JobProgress({ jobId, onDismiss }: Props) {
       else toast.success(message)
       queryClient.invalidateQueries({ queryKey: ["videos"] })
       queryClient.invalidateQueries({ queryKey: ["summaries"] })
+      queryClient.invalidateQueries({ queryKey: ["entities"] })
+      queryClient.invalidateQueries({ queryKey: ["mentions"] })
     }
   }, [job, queryClient])
 

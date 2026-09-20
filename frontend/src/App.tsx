@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { useChannels } from "@/api/queries"
 import { ChannelManagerDialog } from "@/components/ChannelManagerDialog"
 import { ChannelSelect } from "@/components/ChannelSelect"
+import { MentionsTab } from "@/components/MentionsTab"
 import { MonitorStatus } from "@/components/MonitorStatus"
 import { ProcessTab } from "@/components/ProcessTab"
 import { PromptManagerDialog } from "@/components/PromptManagerDialog"
@@ -67,12 +68,16 @@ function App() {
           <TabsList className="mb-4">
             <TabsTrigger value="process">Process videos</TabsTrigger>
             <TabsTrigger value="summaries">Summaries</TabsTrigger>
+            <TabsTrigger value="mentions">Mentions</TabsTrigger>
           </TabsList>
           <TabsContent value="process">
             <ProcessTab key={channelId} channelId={channelId} />
           </TabsContent>
           <TabsContent value="summaries">
             <SummaryList channelId={channelId} />
+          </TabsContent>
+          <TabsContent value="mentions">
+            <MentionsTab key={channelId} channelId={channelId} />
           </TabsContent>
         </Tabs>
       )}

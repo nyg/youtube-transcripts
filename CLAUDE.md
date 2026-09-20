@@ -17,15 +17,18 @@ frontend/  Vite + React + TS + Tailwind + shadcn/ui       (dev server :5173)
 backend/   FastAPI + uvicorn                               (API server :8000)
            ├── app/            REST API (routers/), estimate store, job worker
            │   ├── main.py         lifespan wiring: config, db, prompt bootstrap, jobs
-           │   ├── routers/        channels, prompts, estimates, jobs, summaries, meta
+           │   ├── routers/        channels, prompts, estimates, jobs, summaries,
+           │   │                   mentions, meta
            │   ├── jobs.py         in-memory job registry + background worker
            │   ├── estimates.py    in-memory store carrying estimates -> jobs
+           │   ├── prompts.py      resolves a prompt row -> Extraction spec
            │   └── schemas.py      Pydantic API models
            └── yt_summarizer/  domain modules
                ├── config.py       loads config.yaml + .env
                ├── paths.py        XDG resolution for config file & database
                ├── youtube_client.py  yt-dlp listing, RSS date enrichment
-               ├── transcripts.py  caption track selection + json3 parsing
+               ├── transcripts.py  caption track selection + json3 parsing (timed)
+               ├── mentions.py     the Mention record + entity_key normalization
                ├── claude_client.py token counting, estimation, summarization
                ├── markdown_email.py  Markdown -> inline-styled HTML for digests
                ├── notifications.py   Resend transport
@@ -99,6 +102,31 @@ immutable (channels reference them by name). On first run, `main.py`
 `_bootstrap_prompts` imports any legacy `prompts`/`active_prompt` still in
 `config.yaml` (back-filling channels that had no prompt), else seeds one starter
 prompt so a fresh install can add a channel right away.
+
+**Structured mentions.** A prompt may declare `entity_kind` (coin, stock,
+product…) and its own `stance_labels`; with labels set, summarization switches to
+structured output. One call returns `{summary, mentions[]}` — so extraction costs
+no extra input tokens — and every mention has the same fixed shape (`entity`,
+`stance` from the prompt's labels, `confidence`, `rationale`, `quote`,
+`timestamp_seconds`), which is what lets the UI render any prompt's mentions.
+Mentions land in the `mentions` table, keyed for grouping by `entity_key`
+(whitespace-collapsed, case-folded); `save_summary` replaces a video's mentions in
+the same transaction, so reprocessing never duplicates them. Claude is given the
+prompt's already-known entity names so the same thing keeps one name across
+videos. `ClaudeSummarizer.request_kwargs` builds the request once and both
+`estimate` (`count_tokens`) and `summarize` (`messages.stream`) use it — the
+estimate must count exactly what gets billed. With extraction on, a `max_tokens`
+stop or unparseable JSON is a `SummarizerError`, not a warning: truncated JSON is
+unusable. `GET /api/entities` is the per-entity overview (latest stance, the
+stance before it, counts), `GET /api/mentions` the timeline.
+
+**Transcripts keep caption timestamps.** `transcripts.fetch_transcript` returns a
+`Transcript` (flat `text` plus `segments`), stored as `video_summaries.transcript`
+and `transcript_segments` (JSON). Extraction prompts are sent
+`render_timestamped(...)` — `[mm:ss]` lines — so quotes can carry a timestamp and
+the UI can deep-link with `&t=Ns`; plain prompts still get the flat text, so their
+cost is unchanged. Rows saved before this have no segments: they render flat and
+their mentions have no timestamp.
 
 **Dates: store/serve UTC, render local.** The backend emits every timestamp as
 timezone-aware **UTC ISO 8601** (`youtube_client._utc_iso`, DB `*_at` columns).

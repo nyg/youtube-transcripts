@@ -7,6 +7,8 @@ import { toast } from "sonner"
 import { useDeleteSummary, useSummaryDetail } from "@/api/queries"
 import type { Summary } from "@/api/types"
 import { formatDateTime } from "@/lib/datetime"
+import { stanceClass } from "@/lib/stance"
+import { youtubeAt } from "@/lib/youtube"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,6 +100,33 @@ export function SummaryCard({ summary }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {summary.mentions.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {summary.mentions.map((mention, index) => {
+              const link = youtubeAt(summary.url, mention.timestamp_seconds)
+              const chip = (
+                <Badge variant="outline" className={stanceClass(mention.stance)}>
+                  {mention.entity} · {mention.stance}
+                </Badge>
+              )
+              return link ? (
+                <a
+                  key={`${mention.entity_key}-${index}`}
+                  href={link}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={mention.rationale ?? undefined}
+                >
+                  {chip}
+                </a>
+              ) : (
+                <span key={`${mention.entity_key}-${index}`} title={mention.rationale ?? undefined}>
+                  {chip}
+                </span>
+              )
+            })}
+          </div>
+        )}
         <div className="prose prose-sm dark:prose-invert max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {summary.ai_response}

@@ -1,7 +1,8 @@
 fastapi
 uvicorn[standard]
 yt-dlp
-anthropic
+anthropic>=1.7
+httpx
 python-dotenv
 PyYAML
 croniter

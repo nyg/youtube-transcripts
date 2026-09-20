@@ -12,7 +12,8 @@ import threading
 import uuid
 from dataclasses import dataclass
 
-from yt_summarizer.claude_client import CostEstimate
+from yt_summarizer.claude_client import CostEstimate, Extraction
+from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video
 
 _MAX_ENTRIES = 20
@@ -21,7 +22,7 @@ _MAX_ENTRIES = 20
 @dataclass(frozen=True)
 class PreparedVideo:
     video: Video
-    transcript: str
+    transcript: Transcript
     estimate: CostEstimate
 
 
@@ -31,6 +32,7 @@ class PreparedEstimate:
     channel_id: int
     prompt_name: str
     prompt_text: str
+    extraction: Extraction | None
     items: dict[str, PreparedVideo]  # keyed by video_id, insertion-ordered
 
 
@@ -45,10 +47,13 @@ class EstimateStore:
         channel_id: int,
         prompt_name: str,
         prompt_text: str,
+        extraction: Extraction | None,
         items: dict[str, PreparedVideo],
     ) -> str:
         estimate_id = uuid.uuid4().hex
-        entry = PreparedEstimate(estimate_id, channel_id, prompt_name, prompt_text, items)
+        entry = PreparedEstimate(
+            estimate_id, channel_id, prompt_name, prompt_text, extraction, items
+        )
         with self._lock:
             self._entries[estimate_id] = entry
             while len(self._entries) > _MAX_ENTRIES:

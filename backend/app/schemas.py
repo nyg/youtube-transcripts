@@ -4,19 +4,42 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+MAX_STANCE_LABELS = 20
+
+
+def _clean_labels(labels: list[str] | None) -> list[str] | None:
+    if labels is None:
+        return None
+    return [label.strip() for label in labels if label.strip()]
 
 
 class PromptIn(BaseModel):
     name: str = Field(min_length=1)
     text: str = Field(min_length=1)
     estimated_output_tokens: int = Field(default=2000, ge=1)
+    # Extraction is off while stance_labels is empty.
+    entity_kind: str | None = None
+    stance_labels: list[str] = []
+
+    @field_validator("stance_labels")
+    @classmethod
+    def _labels(cls, value: list[str]) -> list[str]:
+        return _clean_labels(value) or []
 
 
 class PromptPatch(BaseModel):
     # Name is immutable (channels reference a prompt by name). Absent = no change.
     text: str | None = Field(default=None, min_length=1)
     estimated_output_tokens: int | None = Field(default=None, ge=1)
+    entity_kind: str | None = None
+    stance_labels: list[str] | None = None
+
+    @field_validator("stance_labels")
+    @classmethod
+    def _labels(cls, value: list[str] | None) -> list[str] | None:
+        return _clean_labels(value)
 
 
 class PromptOut(BaseModel):
@@ -25,6 +48,8 @@ class PromptOut(BaseModel):
     text: str
     estimated_output_tokens: int
     created_at: str
+    entity_kind: str | None = None
+    stance_labels: list[str] = []
 
 
 class ChannelIn(BaseModel):
@@ -117,6 +142,33 @@ class JobOut(BaseModel):
     total_cost_usd: float
 
 
+class MentionOut(BaseModel):
+    video_id: str
+    entity: str
+    entity_key: str
+    stance: str
+    confidence: str
+    rationale: str | None = None
+    quote: str | None = None
+    timestamp_seconds: int | None = None
+    published_at: str | None = None
+    channel_id: int | None = None
+    title: str | None = None
+    url: str | None = None
+
+
+class EntityOut(BaseModel):
+    entity: str
+    entity_key: str
+    latest_stance: str
+    latest_at: str | None
+    latest_video_id: str
+    previous_stance: str | None
+    previous_at: str | None
+    mention_count: int
+    video_count: int
+
+
 class SummaryOut(BaseModel):
     id: int
     video_id: str
@@ -131,6 +183,7 @@ class SummaryOut(BaseModel):
     cost_usd: float | None
     processed_at: str
     channel_id: int | None
+    mentions: list[MentionOut] = []
 
 
 class SummaryDetailOut(SummaryOut):
