@@ -180,7 +180,7 @@ function isValid(field: Field, draft: Draft): boolean {
 }
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
-  const { data: settings } = useSettings(open)
+  const { data: settings, error } = useSettings(open)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -191,6 +191,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             Stored in the database and applied as soon as you save — no restart.
           </DialogDescription>
         </DialogHeader>
+        {error && (
+          <p className="text-destructive">Could not load the settings: {error.message}</p>
+        )}
         {settings && <SettingsForm settings={settings} onDone={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>
