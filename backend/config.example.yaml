@@ -24,15 +24,17 @@ youtube_request_interval: 2.0
 # ---------------------------------------------------------------------------
 # Claude settings
 # ---------------------------------------------------------------------------
-model: claude-opus-5-5
-max_output_tokens: 8192
-
+# There is no global model: each prompt chooses its own model, effort and output
+# cap in the web UI, and the Ask tab asks for a model and an effort with every
+# question. The models on offer are the ones priced here, so add a line to make
+# another model selectable. Only list models that accept an effort level
+# (claude-haiku-4-5 does not).
+#
 # Prices in USD per 1 million tokens. Used for cost estimation — keep in sync
 # with https://platform.claude.com/docs/en/pricing if they change.
 pricing:
   claude-opus-5-5:   { input: 4.00, output: 20.00 }
   claude-sonnet-5-5: { input: 2.00, output: 10.00 }
-  claude-haiku-4-5:  { input: 1.00, output: 5.00 }
 
 # ---------------------------------------------------------------------------
 # Automatic monitoring (optional)
@@ -89,6 +91,9 @@ ask:
 
   # Assumed answer length, used for the cost estimate only.
   estimated_output_tokens: 1500
+
+  # Hard cap on thinking plus answer. Raise it if you ask at a high effort.
+  max_output_tokens: 8192
 
 # ---------------------------------------------------------------------------
 # Storage

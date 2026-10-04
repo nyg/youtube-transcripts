@@ -1,8 +1,9 @@
 """Prompt management — the summarization templates channels choose from.
 
 Prompts used to live in config.yaml; they are now a DB/UI-managed entity, each
-carrying its own `estimated_output_tokens`. A channel references a prompt by
-name, so a prompt cannot be deleted while a channel still uses it.
+carrying its own model, effort, `max_output_tokens` and `estimated_output_tokens`.
+A channel references a prompt by name, so a prompt cannot be deleted while a
+channel still uses it.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ def _to_prompt(row: sqlite3.Row) -> PromptOut:
         name=row["name"],
         text=row["text"],
         estimated_output_tokens=row["estimated_output_tokens"],
+        model=row["model"],
+        effort=row["effort"],
+        max_output_tokens=row["max_output_tokens"],
         created_at=row["created_at"],
         entity_kind=row["entity_kind"],
         stance_labels=stance_labels(row),
@@ -40,6 +44,14 @@ def _check_labels(labels: list[str] | None) -> None:
         raise HTTPException(status_code=422, detail="Stance labels must be unique")
 
 
+def _check_model(model: str | None, request: Request) -> None:
+    if model is not None and model not in request.app.state.config.pricing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown model {model!r} — add it under 'pricing' in config.yaml",
+        )
+
+
 @router.get("", response_model=list[PromptOut])
 def list_prompts(request: Request) -> list[PromptOut]:
     return [_to_prompt(row) for row in request.app.state.db.list_prompts()]
@@ -54,6 +66,7 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
     if not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
     _check_labels(body.stance_labels)
+    _check_model(body.model, request)
     try:
         row = request.app.state.db.add_prompt(
             name,
@@ -61,6 +74,9 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
             body.estimated_output_tokens,
             entity_kind=(body.entity_kind or "").strip(),
             stance_labels=body.stance_labels,
+            model=body.model,
+            effort=body.effort,
+            max_output_tokens=body.max_output_tokens,
         )
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail=f"Prompt {name!r} already exists")
@@ -73,12 +89,16 @@ def update_prompt(prompt_id: int, body: PromptPatch, request: Request) -> Prompt
     if text is not None and not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
     _check_labels(body.stance_labels)
+    _check_model(body.model, request)
     row = request.app.state.db.update_prompt(
         prompt_id,
         text=text,
         estimated_output_tokens=body.estimated_output_tokens,
         entity_kind=body.entity_kind.strip() if body.entity_kind is not None else None,
         stance_labels=body.stance_labels,
+        model=body.model,
+        effort=body.effort,
+        max_output_tokens=body.max_output_tokens,
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Prompt not found")

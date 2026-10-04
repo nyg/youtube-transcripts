@@ -5,6 +5,9 @@ export interface Prompt {
   name: string
   text: string
   estimated_output_tokens: number
+  model: string | null // null until chosen: the prompt cannot run without it
+  effort: string | null
+  max_output_tokens: number // hard cap on thinking plus response
   created_at: string
   entity_kind: string | null // what the prompt extracts (coin, stock, product…)
   stance_labels: string[] // empty = summary only, no extraction
@@ -38,6 +41,7 @@ export interface Source {
 export interface QuestionEstimate {
   estimate_id: string
   model: string
+  effort: string
   question: string
   mention_count: number
   summary_count: number
@@ -128,6 +132,7 @@ export interface EstimateItem {
 export interface Estimate {
   estimate_id: string
   model: string
+  effort: string
   prompt_name: string
   items: EstimateItem[]
   total_input_tokens: number
@@ -167,6 +172,13 @@ export interface Summary {
   processed_at: string
   channel_id: number | null
   mentions: Mention[]
+  // How the summary was produced; null on summaries saved before these were recorded.
+  effort: string | null
+  max_output_tokens: number | null
+  estimated_output_tokens: number | null
+  tokens_thinking: number | null // part of tokens_output
+  stop_reason: string | null
+  duration_ms: number | null
 }
 
 export interface SummaryDetail extends Summary {
@@ -174,7 +186,8 @@ export interface SummaryDetail extends Summary {
 }
 
 export interface Meta {
-  model: string
+  models: string[]
+  efforts: string[]
   max_videos_fetch: number
   monitoring_enabled: boolean
   monitor_schedule: string

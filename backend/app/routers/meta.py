@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 
+from yt_summarizer.claude_client import EFFORT_LEVELS
+
 from ..schemas import MetaOut
 
 router = APIRouter()
@@ -23,7 +25,8 @@ def get_meta(request: Request) -> MetaOut:
     # The schedule fires in local time, but every timestamp we serve is UTC.
     next_run = state.monitor.next_run_at
     return MetaOut(
-        model=cfg.model,
+        models=list(cfg.pricing),
+        efforts=list(EFFORT_LEVELS),
         max_videos_fetch=cfg.max_videos_fetch,
         monitoring_enabled=cfg.monitor.enabled,
         monitor_schedule=cfg.monitor.schedule,

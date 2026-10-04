@@ -13,6 +13,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from yt_summarizer import analysis
+from yt_summarizer.claude_client import ModelSettings
 
 from ..estimates import PreparedQuestion
 from ..schemas import (
@@ -36,6 +37,12 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Ask a question first")
+    if body.model not in state.config.pricing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown model {body.model!r} — add it under 'pricing' in config.yaml",
+        )
+    settings = ModelSettings(body.model, body.effort, state.config.ask.max_output_tokens)
 
     context = analysis.build_context(
         state.db,
@@ -52,7 +59,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
         )
 
     estimate = state.summarizer.estimate_answer(
-        question, context.text, state.config.ask.estimated_output_tokens
+        settings, question, context.text, state.config.ask.estimated_output_tokens
     )
     estimate_id = uuid.uuid4().hex
     state.questions.add(
@@ -63,6 +70,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
             question=question,
             since=body.since,
             until=body.until,
+            settings=settings,
             context=context.text,
             sources=context.sources,
             estimate=estimate,
@@ -70,7 +78,8 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
     )
     return QuestionEstimateOut(
         estimate_id=estimate_id,
-        model=state.config.model,
+        model=settings.model,
+        effort=settings.effort,
         question=question,
         mention_count=context.mention_count,
         summary_count=context.summary_count,
@@ -90,7 +99,7 @@ def ask_question(body: QuestionAsk, request: Request) -> QuestionOut:
             status_code=410, detail="This estimate expired — run the estimate again."
         )
 
-    result = state.summarizer.answer(prepared.question, prepared.context)
+    result = state.summarizer.answer(prepared.settings, prepared.question, prepared.context)
     sources = [vars(source) for source in prepared.sources]
     row = state.db.save_question(
         channel_id=prepared.channel_id,
@@ -99,7 +108,7 @@ def ask_question(body: QuestionAsk, request: Request) -> QuestionOut:
         until=prepared.until,
         answer=result.text,
         sources=sources,
-        model=state.config.model,
+        model=prepared.settings.model,
         tokens_input=result.tokens_input,
         tokens_output=result.tokens_output,
         cost_usd=result.cost_usd,

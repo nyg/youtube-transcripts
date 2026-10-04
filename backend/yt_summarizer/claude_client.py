@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Literal, get_args
 
 import anthropic
 
@@ -16,8 +18,19 @@ from .transcripts import Transcript
 log = logging.getLogger(__name__)
 
 
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+EFFORT_LEVELS: tuple[str, ...] = get_args(Effort)
+
+
 class SummarizerError(Exception):
     """Raised when a Claude API interaction fails in a user-reportable way."""
+
+
+@dataclass(frozen=True)
+class ModelSettings:
+    model: str
+    effort: str
+    max_output_tokens: int  # caps thinking and response together
 
 
 @dataclass(frozen=True)
@@ -51,6 +64,8 @@ class SummaryResult:
     cost_usd: float | None
     stop_reason: str | None
     mentions: list[Mention] = field(default_factory=list)
+    tokens_thinking: int | None = None  # part of tokens_output; None if not reported
+    duration_ms: int | None = None
 
 
 @contextmanager
@@ -63,7 +78,7 @@ def _api_errors(model: str):
         ) from exc
     except anthropic.NotFoundError as exc:
         raise SummarizerError(
-            f"Unknown model {model!r} — check 'model' in config.yaml"
+            f"Unknown model {model!r} — check its id under 'pricing' in config.yaml"
         ) from exc
     except anthropic.RateLimitError as exc:
         raise SummarizerError(
@@ -213,17 +228,10 @@ def _parse_extraction(raw: str, stance_labels: list[str]) -> tuple[str, list[Men
 
 
 class ClaudeSummarizer:
-    def __init__(
-        self,
-        model: str,
-        max_output_tokens: int,
-        pricing: dict[str, ModelPricing],
-    ) -> None:
+    def __init__(self, pricing: dict[str, ModelPricing]) -> None:
         # Created lazily so missing credentials surface as a SummarizerError on
         # first use (via _api_errors) instead of failing at construction time.
         self._client: anthropic.Anthropic | None = None
-        self._model = model
-        self._max_output_tokens = max_output_tokens
         self._pricing = pricing
 
     def _get_client(self) -> anthropic.Anthropic:
@@ -231,8 +239,13 @@ class ClaudeSummarizer:
             self._client = anthropic.Anthropic()
         return self._client
 
-    def _cost(self, tokens_input: int, tokens_output: int) -> float | None:
-        price = self._pricing.get(self._model)
+    def cost(self, model: str, tokens_input: int, tokens_output: int) -> float | None:
+        """Price for a token count; None if the model has no pricing entry.
+
+        Also used for the monitor's worst-case budget pre-check
+        (cost(model, input_tokens, max_output_tokens)) before spending on a call.
+        """
+        price = self._pricing.get(model)
         if price is None:
             return None
         return (
@@ -240,84 +253,78 @@ class ClaudeSummarizer:
             + tokens_output / 1_000_000 * price.output_per_mtok
         )
 
-    def cost(self, tokens_input: int, tokens_output: int) -> float | None:
-        """Public price for a token count; None if the model has no pricing entry.
-
-        Used for the monitor's worst-case budget pre-check
-        (cost(input_tokens, max_output_tokens)) before spending on a call.
-        """
-        return self._cost(tokens_input, tokens_output)
-
-    @property
-    def max_output_tokens(self) -> int:
-        return self._max_output_tokens
-
     def request_kwargs(
-        self, prompt: str, transcript: Transcript, extraction: Extraction | None
+        self,
+        settings: ModelSettings,
+        prompt: str,
+        transcript: Transcript,
+        extraction: Extraction | None,
     ) -> dict:
         timestamped = extraction is not None and bool(transcript.segments)
         system = prompt
+        output_config: dict = {"effort": settings.effort}
         if extraction is not None:
             system = f"{prompt}\n\n{_extraction_instructions(extraction, timestamped)}"
-        kwargs: dict = {
-            "model": self._model,
+            output_config["format"] = {
+                "type": "json_schema",
+                "schema": _extraction_schema(extraction.stance_labels),
+            }
+        return {
+            "model": settings.model,
             "system": system,
             "messages": _messages(transcript.rendered(timestamps=timestamped)),
+            "output_config": output_config,
         }
-        if extraction is not None:
-            kwargs["output_config"] = {
-                "format": {
-                    "type": "json_schema",
-                    "schema": _extraction_schema(extraction.stance_labels),
-                }
-            }
-        return kwargs
 
     def estimate(
         self,
+        settings: ModelSettings,
         prompt: str,
         transcript: Transcript,
         estimated_output_tokens: int,
         extraction: Extraction | None = None,
     ) -> CostEstimate:
         """Count input tokens server-side (free, exact) and estimate the cost."""
-        with _api_errors(self._model):
+        with _api_errors(settings.model):
             count = self._get_client().messages.count_tokens(
-                **self.request_kwargs(prompt, transcript, extraction)
+                **self.request_kwargs(settings, prompt, transcript, extraction)
             )
         return CostEstimate(
             input_tokens=count.input_tokens,
             estimated_output_tokens=estimated_output_tokens,
-            cost_usd=self._cost(count.input_tokens, estimated_output_tokens),
+            cost_usd=self.cost(settings.model, count.input_tokens, estimated_output_tokens),
         )
 
     def summarize(
         self,
+        settings: ModelSettings,
         prompt: str,
         transcript: Transcript,
         extraction: Extraction | None = None,
     ) -> SummaryResult:
         """Send the transcript to Claude and return the response with actual usage."""
-        with _api_errors(self._model):
+        started = time.monotonic()
+        with _api_errors(settings.model):
             with self._get_client().messages.stream(
-                max_tokens=self._max_output_tokens,
-                **self.request_kwargs(prompt, transcript, extraction),
+                max_tokens=settings.max_output_tokens,
+                **self.request_kwargs(settings, prompt, transcript, extraction),
             ) as stream:
                 response = stream.get_final_message()
+        duration_ms = round((time.monotonic() - started) * 1000)
 
         if response.stop_reason == "refusal":
             raise SummarizerError("Claude declined to process this transcript (stop_reason=refusal)")
         if response.stop_reason == "max_tokens":
             if extraction is not None:
                 raise SummarizerError(
-                    f"Response hit the max_output_tokens limit ({self._max_output_tokens}), "
-                    "so the extracted JSON is truncated — raise 'max_output_tokens' in "
-                    "config.yaml or shorten the prompt"
+                    f"Response hit the max output tokens limit ({settings.max_output_tokens}), "
+                    "so the extracted JSON is truncated — raise the prompt's max output "
+                    "tokens or lower its effort"
                 )
             log.warning(
-                "Response hit the max_output_tokens limit (%d) and may be truncated — "
-                "consider raising 'max_output_tokens' in config.yaml",
-                self._max_output_tokens,
+                "Response hit the max output tokens limit (%d) and may be truncated — "
+                "consider raising the prompt's max output tokens",
+                settings.max_output_tokens,
             )
 
         text = "".join(block.text for block in response.content if block.type == "text").strip()
@@ -329,39 +336,50 @@ class ClaudeSummarizer:
             text, mentions = _parse_extraction(text, extraction.stance_labels)
 
         usage = response.usage
+        details = usage.output_tokens_details
         return SummaryResult(
             text=text,
             tokens_input=usage.input_tokens,
             tokens_output=usage.output_tokens,
-            cost_usd=self._cost(usage.input_tokens, usage.output_tokens),
+            cost_usd=self.cost(settings.model, usage.input_tokens, usage.output_tokens),
             stop_reason=response.stop_reason,
             mentions=mentions,
+            tokens_thinking=details.thinking_tokens if details else None,
+            duration_ms=duration_ms,
         )
 
+    def answer_kwargs(self, settings: ModelSettings, question: str, context: str) -> dict:
+        return {
+            "model": settings.model,
+            "system": answer_system(context),
+            "messages": answer_messages(question),
+            "output_config": {"effort": settings.effort},
+        }
+
     def estimate_answer(
-        self, question: str, context: str, estimated_output_tokens: int
+        self,
+        settings: ModelSettings,
+        question: str,
+        context: str,
+        estimated_output_tokens: int,
     ) -> CostEstimate:
         """Count the exact request the answer will send (free)."""
-        with _api_errors(self._model):
+        with _api_errors(settings.model):
             count = self._get_client().messages.count_tokens(
-                model=self._model,
-                system=answer_system(context),
-                messages=answer_messages(question),
+                **self.answer_kwargs(settings, question, context)
             )
         return CostEstimate(
             input_tokens=count.input_tokens,
             estimated_output_tokens=estimated_output_tokens,
-            cost_usd=self._cost(count.input_tokens, estimated_output_tokens),
+            cost_usd=self.cost(settings.model, count.input_tokens, estimated_output_tokens),
         )
 
-    def answer(self, question: str, context: str) -> AnswerResult:
+    def answer(self, settings: ModelSettings, question: str, context: str) -> AnswerResult:
         """Answer a question from the assembled sources, with [n] citations."""
-        with _api_errors(self._model):
+        with _api_errors(settings.model):
             with self._get_client().messages.stream(
-                model=self._model,
-                max_tokens=self._max_output_tokens,
-                system=answer_system(context),
-                messages=answer_messages(question),
+                max_tokens=settings.max_output_tokens,
+                **self.answer_kwargs(settings, question, context),
             ) as stream:
                 response = stream.get_final_message()
 
@@ -377,6 +395,6 @@ class ClaudeSummarizer:
             text=text,
             tokens_input=usage.input_tokens,
             tokens_output=usage.output_tokens,
-            cost_usd=self._cost(usage.input_tokens, usage.output_tokens),
+            cost_usd=self.cost(settings.model, usage.input_tokens, usage.output_tokens),
             stop_reason=response.stop_reason,
         )

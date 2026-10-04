@@ -91,8 +91,8 @@ rather than silently ignored.
 **Channels and prompts live in the DB, not config.** Both are UI-managed CRUD
 entities (`channels` and `prompts` tables; `routers/channels.py` /
 `routers/prompts.py`; React `ChannelManagerDialog` / `PromptManagerDialog`).
-`config.yaml` holds only global settings (model, pricing, YouTube pacing,
-monitoring schedule/budget). A **prompt** carries its own text and
+`config.yaml` holds only global settings (pricing, YouTube pacing,
+monitoring schedule/budget). A **prompt** carries its own text, model settings and
 `estimated_output_tokens` (the assumed output length used for cost estimates). A
 **channel** references exactly one prompt by name (`channels.prompt_name`,
 validated against the `prompts` table) and carries its own digest recipients
@@ -104,6 +104,10 @@ immutable (channels reference them by name). On first run, `main.py`
 `_bootstrap_prompts` imports any legacy `prompts`/`active_prompt` still in
 `config.yaml` (back-filling channels that had no prompt), else seeds one starter
 prompt so a fresh install can add a channel right away.
+
+**Model, effort and output cap are per prompt, with no default.** There is no global model. `prompts.model` and `prompts.effort` are nullable only so rows from before this change survive the migration: the API requires both on create, and `app/prompts.py` `settings_for` returns `None` for a row that lacks either, which the estimate router turns into a 422 and the monitor into a skipped channel. The starter and legacy-imported prompts are seeded without them too. Never fall back to a default model or effort. The models on offer are the keys of the `pricing` table (`GET /api/meta`), so a prompt can only use a model the app can price — the monitor's budget check is skipped for an unpriced model. `effort` is always sent as `output_config.effort`, so the table must not list a model that rejects it (Haiku 4.5). `max_output_tokens` caps thinking plus response and is also the worst case of the monitor's budget pre-check. The three travel together as `ModelSettings`, held in `PreparedEstimate` / `PreparedQuestion`, so a job bills the settings the estimate was approved with even if the prompt is edited in between. Ask has no prompt: the model and effort come with each question, and `ask.max_output_tokens` is its cap.
+
+**Run stats are stored with each summary.** `save_summary` records how the summary was produced: `effort`, `max_output_tokens`, `estimated_output_tokens`, `tokens_thinking`, `stop_reason` and `duration_ms`. `tokens_thinking` comes from `usage.output_tokens_details` and is a part of `tokens_output`, not an addition to it; it is NULL when the API omits the breakdown. All six are NULL on rows saved before they existed, they are replaced on reprocess, and the card's "Show stats" (`SummaryStats.tsx`) only appears when `effort` is set.
 
 **Structured mentions.** A prompt may declare `entity_kind` (coin, stock,
 product…) and its own `stance_labels`; with labels set, summarization switches to

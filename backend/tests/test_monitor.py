@@ -11,7 +11,7 @@ import pytest
 from app.jobs import JobRegistry
 from app.monitor import ChannelMonitor
 from yt_summarizer import notifications, transcripts, youtube_client
-from yt_summarizer.claude_client import CostEstimate, Extraction, SummaryResult
+from yt_summarizer.claude_client import CostEstimate, Extraction, ModelSettings, SummaryResult
 from yt_summarizer.mentions import Mention
 from yt_summarizer.config import AskConfig, Config, MonitorConfig
 from yt_summarizer.database import Database
@@ -27,8 +27,6 @@ def _transcript(text: str = "transcript") -> transcripts.Transcript:
 class FakeSummarizer:
     """Fixed worst-case and actual cost so budget math is deterministic."""
 
-    max_output_tokens = 8192
-
     def __init__(
         self,
         worst: float,
@@ -42,9 +40,12 @@ class FakeSummarizer:
         self._mentions = mentions or []
         self.summarize_calls = 0
         self.extractions: list[Extraction | None] = []
+        self.settings: list[ModelSettings] = []
+        self.worst_case_tokens: list[int] = []
 
     def estimate(
         self,
+        settings: ModelSettings,
         prompt: str,
         transcript,
         estimated_output_tokens: int,
@@ -53,17 +54,24 @@ class FakeSummarizer:
         return CostEstimate(input_tokens=1000, estimated_output_tokens=estimated_output_tokens,
                             cost_usd=0.01)
 
-    def cost(self, tokens_input: int, tokens_output: int) -> float:
+    def cost(self, model: str, tokens_input: int, tokens_output: int) -> float:
+        self.worst_case_tokens.append(tokens_output)
         return self._worst
 
     def summarize(
-        self, prompt: str, transcript, extraction: Extraction | None = None
+        self,
+        settings: ModelSettings,
+        prompt: str,
+        transcript,
+        extraction: Extraction | None = None,
     ) -> SummaryResult:
         self.summarize_calls += 1
         self.extractions.append(extraction)
+        self.settings.append(settings)
         return SummaryResult(text=self._text, tokens_input=1000, tokens_output=500,
                              cost_usd=self._actual, stop_reason="end_turn",
-                             mentions=list(self._mentions))
+                             mentions=list(self._mentions), tokens_thinking=300,
+                             duration_ms=1200)
 
 
 def _make_config(
@@ -87,17 +95,23 @@ def _make_config(
     )
     return Config(
         max_videos_fetch=25, transcript_languages=("en",),
-        youtube_request_interval=0.0, cookies_file=None, model="claude-test",
-        max_output_tokens=8192, pricing={},
+        youtube_request_interval=0.0, cookies_file=None, pricing={},
         database=db_path, monitor=mon,
-        ask=AskConfig(max_context_tokens=100_000, estimated_output_tokens=1500),
+        ask=AskConfig(
+            max_context_tokens=100_000, estimated_output_tokens=1500, max_output_tokens=8192
+        ),
     )
+
+
+def _add_prompt(db: Database, name: str, text: str = "sys", **fields):
+    settings = {"model": "claude-test", "effort": "low", "max_output_tokens": 4096}
+    return db.add_prompt(name, text, 2000, **{**settings, **fields})
 
 
 def _seed_channel(db: Database, *, prompt="default", text="sys", recipients=None):
     """Add a prompt (once) and a channel referencing it. Prompts now live in the DB."""
     if db.get_prompt_by_name(prompt) is None:
-        db.add_prompt(prompt, text, 2000)
+        _add_prompt(db, prompt, text)
     return db.add_channel("@chan", "Chan", prompt, recipients or [])
 
 
@@ -191,7 +205,7 @@ def test_skips_cycle_when_slot_reserved(tmp_path, monkeypatch):
 
 def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_prompt("alt", "alt sys", 2000)
+    _add_prompt(db, "alt", "alt sys")
     db.add_channel("@chan", "Chan", "alt")
     _patch_youtube(monkeypatch, [_video("v0", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
@@ -200,10 +214,14 @@ def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
 
     class RecordingSummarizer(FakeSummarizer):
         def summarize(
-            self, prompt: str, transcript, extraction: Extraction | None = None
+            self,
+            settings: ModelSettings,
+            prompt: str,
+            transcript,
+            extraction: Extraction | None = None,
         ) -> SummaryResult:
             seen["prompt"] = prompt
-            return super().summarize(prompt, transcript, extraction)
+            return super().summarize(settings, prompt, transcript, extraction)
 
     ChannelMonitor(cfg, db, RecordingSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
 
@@ -261,7 +279,7 @@ def test_no_email_when_channel_has_no_recipients(tmp_path, monkeypatch):
 
 def test_digest_grouped_per_channel(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_prompt("default", "sys", 2000)
+    _add_prompt(db, "default")
     db.add_channel("@a", "A", "default", ["a@example.com"])
     db.add_channel("@b", "B", "default", ["b@example.com"])
     per_channel = {"@a": [_video("va", None)], "@b": [_video("vb", None)]}
@@ -402,7 +420,7 @@ def test_no_email_when_nothing_new(tmp_path, monkeypatch):
 
 def test_prompt_with_stance_labels_extracts_and_saves_mentions(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_prompt("crypto", "sys", 2000, entity_kind="coin", stance_labels=["bullish", "bearish"])
+    _add_prompt(db, "crypto", entity_kind="coin", stance_labels=["bullish", "bearish"])
     db.add_channel("@chan", "Chan", "crypto")
     _patch_youtube(monkeypatch, [_video("v0", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
@@ -424,7 +442,7 @@ def test_prompt_with_stance_labels_extracts_and_saves_mentions(tmp_path, monkeyp
 
 def test_prompt_without_stance_labels_does_not_extract(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    db.add_prompt("plain", "sys", 2000)
+    _add_prompt(db, "plain")
     db.add_channel("@chan", "Chan", "plain")
     _patch_youtube(monkeypatch, [_video("v0", None)])
     cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
@@ -434,3 +452,54 @@ def test_prompt_without_stance_labels_does_not_extract(tmp_path, monkeypatch):
 
     assert summarizer.extractions == [None]
     assert db.list_mentions() == []
+
+
+def test_prompt_settings_drive_the_request_and_the_budget_check(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    _add_prompt(db, "deep", model="claude-deep", effort="high", max_output_tokens=32_000)
+    db.add_channel("@chan", "Chan", "deep")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db")
+    summarizer = FakeSummarizer(0.1, 0.1)
+
+    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+
+    assert summarizer.settings == [ModelSettings("claude-deep", "high", 32_000)]
+    assert summarizer.worst_case_tokens == [32_000]
+    assert db.get_summary("v0")["model"] == "claude-deep"
+
+
+def test_summary_is_saved_with_its_run_stats(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    _add_prompt(db, "deep", effort="high", max_output_tokens=32_000)
+    db.add_channel("@chan", "Chan", "deep")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db")
+
+    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+
+    row = db.get_summary("v0")
+    assert (row["effort"], row["max_output_tokens"], row["estimated_output_tokens"]) == (
+        "high",
+        32_000,
+        2000,
+    )
+    assert (row["tokens_thinking"], row["stop_reason"], row["duration_ms"]) == (
+        300,
+        "end_turn",
+        1200,
+    )
+
+
+def test_prompt_without_model_or_effort_is_skipped(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("legacy", "sys", 2000)
+    db.add_channel("@chan", "Chan", "legacy")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    summarizer = FakeSummarizer(0.1, 0.1)
+
+    result = ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+
+    assert result.summarized == 0
+    assert summarizer.summarize_calls == 0

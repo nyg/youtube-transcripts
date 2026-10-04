@@ -6,6 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from yt_summarizer.claude_client import Effort
+from yt_summarizer.config import DEFAULT_MAX_OUTPUT_TOKENS
+
 MAX_STANCE_LABELS = 20
 
 
@@ -19,6 +22,9 @@ class PromptIn(BaseModel):
     name: str = Field(min_length=1)
     text: str = Field(min_length=1)
     estimated_output_tokens: int = Field(default=2000, ge=1)
+    model: str = Field(min_length=1)
+    effort: Effort
+    max_output_tokens: int = Field(default=DEFAULT_MAX_OUTPUT_TOKENS, ge=1)
     # Extraction is off while stance_labels is empty.
     entity_kind: str | None = None
     stance_labels: list[str] = []
@@ -33,6 +39,9 @@ class PromptPatch(BaseModel):
     # Name is immutable (channels reference a prompt by name). Absent = no change.
     text: str | None = Field(default=None, min_length=1)
     estimated_output_tokens: int | None = Field(default=None, ge=1)
+    model: str | None = Field(default=None, min_length=1)
+    effort: Effort | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
     entity_kind: str | None = None
     stance_labels: list[str] | None = None
 
@@ -47,6 +56,10 @@ class PromptOut(BaseModel):
     name: str
     text: str
     estimated_output_tokens: int
+    # None on prompts created before model and effort were chosen per prompt.
+    model: str | None
+    effort: str | None
+    max_output_tokens: int
     created_at: str
     entity_kind: str | None = None
     stance_labels: list[str] = []
@@ -109,6 +122,7 @@ class EstimateItemOut(BaseModel):
 class EstimateOut(BaseModel):
     estimate_id: str
     model: str
+    effort: str
     prompt_name: str
     items: list[EstimateItemOut]
     total_input_tokens: int
@@ -171,6 +185,8 @@ class EntityOut(BaseModel):
 
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    effort: Effort
     channel_id: int | None = None  # None = every channel
     since: str | None = None  # UTC ISO 8601
     until: str | None = None
@@ -193,6 +209,7 @@ class SourceOut(BaseModel):
 class QuestionEstimateOut(BaseModel):
     estimate_id: str
     model: str
+    effort: str
     question: str
     mention_count: int
     summary_count: int
@@ -243,6 +260,13 @@ class SummaryOut(BaseModel):
     processed_at: str
     channel_id: int | None
     mentions: list[MentionOut] = []
+    # How the summary was produced; None on rows saved before these were recorded.
+    effort: str | None = None
+    max_output_tokens: int | None = None
+    estimated_output_tokens: int | None = None
+    tokens_thinking: int | None = None  # part of tokens_output
+    stop_reason: str | None = None
+    duration_ms: int | None = None
 
 
 class SummaryDetailOut(SummaryOut):
@@ -250,7 +274,8 @@ class SummaryDetailOut(SummaryOut):
 
 
 class MetaOut(BaseModel):
-    model: str
+    models: list[str]  # the models with a pricing entry in config.yaml
+    efforts: list[str]
     max_videos_fetch: int
     monitoring_enabled: bool
     monitor_schedule: str  # cron expression, evaluated in the server's local time

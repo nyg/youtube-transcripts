@@ -11,7 +11,7 @@ from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 
 from ..estimates import PreparedVideo
-from ..prompts import extraction_for
+from ..prompts import extraction_for, settings_for
 from ..schemas import EstimateItemOut, EstimateOut, EstimateRequest
 
 log = logging.getLogger(__name__)
@@ -40,6 +40,13 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
             "choose a prompt for it in Manage channels.",
         )
     prompt_name = prompt["name"]
+    settings = settings_for(prompt)
+    if settings is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Prompt {prompt_name!r} has no model or effort — "
+            "choose them in Manage prompts.",
+        )
     prompt_text = prompt["text"]
     estimated_output_tokens = prompt["estimated_output_tokens"]
     extraction = extraction_for(state.db, prompt)
@@ -119,7 +126,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
         # Auth/model errors would fail for every video — let the whole request
         # abort with a 502 via the SummarizerError handler.
         estimate = state.summarizer.estimate(
-            prompt_text, transcript, estimated_output_tokens, extraction
+            settings, prompt_text, transcript, estimated_output_tokens, extraction
         )
         prepared[video_id] = PreparedVideo(video=video, transcript=transcript, estimate=estimate)
         items.append(
@@ -139,6 +146,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
         channel_id=body.channel_id,
         prompt_name=prompt_name,
         prompt_text=prompt_text,
+        settings=settings,
         extraction=extraction,
         items=prepared,
     )
@@ -153,7 +161,8 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
 
     return EstimateOut(
         estimate_id=estimate_id,
-        model=cfg.model,
+        model=settings.model,
+        effort=settings.effort,
         prompt_name=prompt_name,
         items=items,
         total_input_tokens=total_input,

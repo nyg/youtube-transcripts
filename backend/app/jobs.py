@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from yt_summarizer.claude_client import ClaudeSummarizer, Extraction, SummarizerError
+from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
 from yt_summarizer.database import Database
 from yt_summarizer.transcripts import Transcript, segments_to_json
 from yt_summarizer.youtube_client import Video
@@ -27,6 +27,7 @@ class JobConflictError(Exception):
 class JobItem:
     video: Video
     transcript: Transcript
+    estimated_output_tokens: int
     status: str = "queued"  # queued | processing | done | failed
     error: str | None = None
     tokens_input: int | None = None
@@ -80,7 +81,6 @@ class JobRegistry:
         video_ids: list[str],
         db: Database,
         summarizer: ClaudeSummarizer,
-        model: str,
     ) -> Job:
         job = Job(
             job_id=uuid.uuid4().hex,
@@ -88,7 +88,11 @@ class JobRegistry:
             prompt_name=estimate.prompt_name,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             items=[
-                JobItem(video=prepared.video, transcript=prepared.transcript)
+                JobItem(
+                    video=prepared.video,
+                    transcript=prepared.transcript,
+                    estimated_output_tokens=prepared.estimate.estimated_output_tokens,
+                )
                 for video_id, prepared in estimate.items.items()
                 if video_id in video_ids
             ],
@@ -99,7 +103,7 @@ class JobRegistry:
             self._jobs[job.job_id] = job
         thread = threading.Thread(
             target=self._run,
-            args=(job, estimate.prompt_text, estimate.extraction, db, summarizer, model),
+            args=(job, estimate, db, summarizer),
             name=f"job-{job.job_id[:8]}",
             daemon=True,
         )
@@ -134,18 +138,21 @@ class JobRegistry:
     def _run(
         self,
         job: Job,
-        prompt_text: str,
-        extraction: Extraction | None,
+        estimate: PreparedEstimate,
         db: Database,
         summarizer: ClaudeSummarizer,
-        model: str,
     ) -> None:
         try:
             for item in job.items:
                 with self._lock:
                     item.status = "processing"
                 try:
-                    result = summarizer.summarize(prompt_text, item.transcript, extraction)
+                    result = summarizer.summarize(
+                        estimate.settings,
+                        estimate.prompt_text,
+                        item.transcript,
+                        estimate.extraction,
+                    )
                 except SummarizerError as exc:
                     log.error("Failed to summarize %s: %s", item.video.video_id, exc)
                     with self._lock:
@@ -161,12 +168,18 @@ class JobRegistry:
                     transcript_segments=segments_to_json(item.transcript.segments),
                     mentions=result.mentions,
                     prompt_name=job.prompt_name,
-                    model=model,
+                    model=estimate.settings.model,
                     ai_response=result.text,
                     tokens_input=result.tokens_input,
                     tokens_output=result.tokens_output,
                     cost_usd=result.cost_usd,
                     channel_id=job.channel_id,
+                    effort=estimate.settings.effort,
+                    max_output_tokens=estimate.settings.max_output_tokens,
+                    estimated_output_tokens=item.estimated_output_tokens,
+                    tokens_thinking=result.tokens_thinking,
+                    stop_reason=result.stop_reason,
+                    duration_ms=result.duration_ms,
                 )
                 with self._lock:
                     item.status = "done"
