@@ -52,7 +52,13 @@ const YOUTUBE_FIELDS: Field[] = [
 ]
 
 const ASK_FIELDS: Field[] = [
-  { path: "ask.max_context_tokens", label: "Context ceiling (tokens)", kind: "int", min: 1000 },
+  {
+    path: "ask.max_context_tokens",
+    label: "Context ceiling (tokens)",
+    kind: "int",
+    min: 1000,
+    hint: "Most mentions, summaries and excerpts sent with a question. More costs more.",
+  },
   {
     path: "ask.estimated_output_tokens",
     label: "Assumed answer length (tokens)",
@@ -97,13 +103,7 @@ const MONITORING_FIELDS: Field[] = [
     hint: "0 = unlimited.",
   },
   { path: "monitoring.subject_prefix", label: "Digest subject prefix", kind: "text" },
-  {
-    path: "monitoring.resend_from",
-    label: "Digest sender",
-    kind: "text",
-    hint: "An address on a domain verified at resend.com. Required to check automatically.",
-    wide: true,
-  },
+  { path: "monitoring.resend_from", label: "Digest sender", kind: "text", wide: true },
 ]
 
 const priceField = (family: string, side: "input" | "output"): Field => ({
@@ -361,7 +361,7 @@ function SettingField({
         onChange={(e) => onChange(field.path, e.target.value)}
         aria-invalid={!isValid(field, draft)}
       />
-      {field.hint && <p className="text-muted-foreground text-xs">{field.hint}</p>}
+      {field.hint && <p className="text-muted-foreground ml-px pl-2.5 text-xs">{field.hint}</p>}
     </div>
   )
 }
