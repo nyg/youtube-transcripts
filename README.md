@@ -111,7 +111,7 @@ the UI. The config file holds global settings only:
 | `transcript_languages` | Preferred transcript languages, in order; falls back to the original-language auto captions |
 | `youtube_request_interval` | Minimum seconds between YouTube requests |
 | `cookies_file` | Optional Netscape-format cookies file for higher rate limits |
-| `model` | Claude model ID (default `claude-opus-4-8`) |
+| `model` | Claude model ID (default `claude-opus-5-5`) |
 | `max_output_tokens` | Hard cap on response length |
 | `pricing` | $/1M input & output tokens per model — used for cost math |
 | `monitoring.enabled` | Turn the background monitor on |
