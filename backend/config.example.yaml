@@ -24,15 +24,15 @@ youtube_request_interval: 2.0
 # ---------------------------------------------------------------------------
 # Claude settings
 # ---------------------------------------------------------------------------
-model: claude-opus-4-8
+model: claude-opus-5-5
 max_output_tokens: 8192
 
 # Prices in USD per 1 million tokens. Used for cost estimation — keep in sync
 # with https://platform.claude.com/docs/en/pricing if they change.
 pricing:
-  claude-opus-4-8:  { input: 5.00, output: 25.00 }
-  claude-sonnet-5:  { input: 3.00, output: 15.00 }
-  claude-haiku-4-5: { input: 1.00, output: 5.00 }
+  claude-opus-5-5:   { input: 4.00, output: 20.00 }
+  claude-sonnet-5-5: { input: 2.00, output: 10.00 }
+  claude-haiku-4-5:  { input: 1.00, output: 5.00 }
 
 # ---------------------------------------------------------------------------
 # Automatic monitoring (optional)
@@ -84,7 +84,7 @@ monitoring:
 # summarization.
 ask:
   # Ceiling on the context sent with a question. More context costs more per
-  # question: at $5 / 1M input tokens, 100k tokens is about $0.50.
+  # question: at $4 / 1M input tokens, 100k tokens is about $0.40.
   max_context_tokens: 100000
 
   # Assumed answer length, used for the cost estimate only.

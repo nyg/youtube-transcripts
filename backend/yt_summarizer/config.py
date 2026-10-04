@@ -97,7 +97,7 @@ def load_config(path: Path) -> Config:
         transcript_languages=tuple(str(lang) for lang in raw.get("transcript_languages") or ["en"]),
         youtube_request_interval=float(raw.get("youtube_request_interval", 2.0)),
         cookies_file=Path(str(raw["cookies_file"])).expanduser() if raw.get("cookies_file") else None,
-        model=str(raw.get("model", "claude-opus-4-8")),
+        model=str(raw.get("model", "claude-opus-5-5")),
         max_output_tokens=int(raw.get("max_output_tokens", 8192)),
         pricing=pricing,
         database=paths.resolve_database_path(raw.get("database")),
