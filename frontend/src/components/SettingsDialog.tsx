@@ -6,13 +6,7 @@ import { useMeta, useRefreshModels, useSettings, useUpdateSettings } from "@/api
 import type { Settings } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -184,12 +178,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Stored in the database and applied as soon as you save — no restart.
-          </DialogDescription>
         </DialogHeader>
         {error && (
           <p className="text-destructive">Could not load the settings: {error.message}</p>
@@ -240,10 +234,8 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
     <>
       <Section title="Models and prices">
         <p className="text-muted-foreground text-xs sm:col-span-2">
-          A prompt or a question chooses a family and always runs on its newest
-          model. Prices are USD per million tokens; they drive every cost estimate
-          and the daily budget. Anthropic's API does not report prices, so check
-          them when a family moves to a new model.
+          Prices are in USD per million tokens. Update them manually when a model
+          changes.
         </p>
         <ul className="space-y-2 sm:col-span-2">
           {models.map((model) => (
