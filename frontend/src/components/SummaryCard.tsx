@@ -9,6 +9,7 @@ import type { Summary } from "@/api/types"
 import { formatDateTime } from "@/lib/datetime"
 import { stanceClass } from "@/lib/stance"
 import { youtubeAt } from "@/lib/youtube"
+import { SummaryStats } from "@/components/SummaryStats"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +28,7 @@ interface Props {
 
 export function SummaryCard({ summary }: Props) {
   const [showTranscript, setShowTranscript] = useState(false)
+  const [showStats, setShowStats] = useState(false)
   const detail = useSummaryDetail(summary.video_id, showTranscript)
   const deleteSummary = useDeleteSummary()
   // Deleting drops the summary *and* its transcript for good, so the trash icon
@@ -134,14 +136,17 @@ export function SummaryCard({ summary }: Props) {
         </div>
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="self-start"
-          onClick={() => setShowTranscript((v) => !v)}
-        >
-          {showTranscript ? "Hide transcript" : "Show transcript"}
-        </Button>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setShowTranscript((v) => !v)}>
+            {showTranscript ? "Hide transcript" : "Show transcript"}
+          </Button>
+          {summary.effort != null && (
+            <Button variant="ghost" size="sm" onClick={() => setShowStats((v) => !v)}>
+              {showStats ? "Hide stats" : "Show stats"}
+            </Button>
+          )}
+        </div>
+        {showStats && <SummaryStats summary={summary} />}
         {showTranscript && (
           <ScrollArea className="bg-muted h-56 rounded-md p-3">
             <p className="text-muted-foreground text-xs whitespace-pre-wrap">

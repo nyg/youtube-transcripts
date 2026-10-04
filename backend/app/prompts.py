@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from yt_summarizer.claude_client import Extraction
+from yt_summarizer.claude_client import Extraction, ModelSettings
 from yt_summarizer.database import Database
 
 
@@ -16,6 +16,12 @@ def stance_labels(prompt: sqlite3.Row) -> list[str]:
     except ValueError:
         return []
     return [str(label) for label in labels if str(label).strip()]
+
+
+def settings_for(prompt: sqlite3.Row) -> ModelSettings | None:
+    if not prompt["model"] or not prompt["effort"]:
+        return None
+    return ModelSettings(prompt["model"], prompt["effort"], prompt["max_output_tokens"])
 
 
 def extraction_for(db: Database, prompt: sqlite3.Row) -> Extraction | None:

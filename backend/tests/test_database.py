@@ -112,6 +112,7 @@ def test_prompt_crud_roundtrip(tmp_path):
     assert row["name"] == "summary"
     assert row["text"] == "Summarize this."
     assert row["estimated_output_tokens"] == 1500
+    assert (row["model"], row["effort"], row["max_output_tokens"]) == (None, None, 8192)
 
     fetched = db.get_prompt_by_name("summary")
     assert fetched is not None and fetched["id"] == row["id"]
@@ -122,8 +123,35 @@ def test_prompt_crud_roundtrip(tmp_path):
     assert updated["text"] == "New text."
     assert updated["estimated_output_tokens"] == 3000
 
+    updated = db.update_prompt(row["id"], model="m", effort="high", max_output_tokens=16_000)
+    assert updated is not None
+    assert (updated["model"], updated["effort"], updated["max_output_tokens"]) == (
+        "m",
+        "high",
+        16_000,
+    )
+    assert updated["text"] == "New text."
+
     assert db.delete_prompt(row["id"]) is True
     assert db.get_prompt(row["id"]) is None
+
+
+def test_prompts_from_before_per_prompt_settings_get_the_columns(tmp_path):
+    path = tmp_path / "v.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "name TEXT UNIQUE NOT NULL, text TEXT NOT NULL, "
+            "estimated_output_tokens INTEGER NOT NULL DEFAULT 2000, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO prompts (name, text, created_at) VALUES ('old', 'sys', '2026-01-01')"
+        )
+
+    row = Database(path).get_prompt_by_name("old")
+
+    assert row is not None
+    assert (row["model"], row["effort"], row["max_output_tokens"]) == (None, None, 8192)
 
 
 def test_add_prompt_duplicate_name_raises(tmp_path):
@@ -335,3 +363,56 @@ def test_backfill_chunks_indexes_rows_once(tmp_path):
     assert db.backfill_chunks() == 1
     assert db.backfill_chunks() == 0
     assert [hit["video_id"] for hit in db.search("x")] == ["old"]
+
+
+def _save_plain(db: Database, **stats) -> None:
+    db.save_summary(
+        video_id="v0", title="T", url="u", published_at=None, transcript="x",
+        prompt_name="p", model="m", ai_response="r", tokens_input=1000,
+        tokens_output=500, cost_usd=0.1, **stats,
+    )
+
+
+def test_run_stats_are_stored_and_replaced_on_reprocess(tmp_path):
+    db = Database(tmp_path / "v.db")
+
+    _save_plain(
+        db, effort="high", max_output_tokens=8192, estimated_output_tokens=2000,
+        tokens_thinking=300, stop_reason="end_turn", duration_ms=1500,
+    )
+    first = dict(db.get_summary("v0"))
+    _save_plain(db, effort="low", max_output_tokens=4096, estimated_output_tokens=1000)
+    second = dict(db.get_summary("v0"))
+
+    assert (first["effort"], first["tokens_thinking"], first["duration_ms"]) == (
+        "high",
+        300,
+        1500,
+    )
+    assert (second["effort"], second["max_output_tokens"]) == ("low", 4096)
+    assert (second["tokens_thinking"], second["stop_reason"], second["duration_ms"]) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_summaries_from_before_run_stats_get_the_columns(tmp_path):
+    path = tmp_path / "v.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE video_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "video_id TEXT UNIQUE NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, "
+            "published_at TEXT, transcript TEXT NOT NULL, prompt_name TEXT NOT NULL, "
+            "model TEXT NOT NULL, ai_response TEXT NOT NULL, tokens_input INTEGER, "
+            "tokens_output INTEGER, cost_usd REAL, processed_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO video_summaries (video_id, title, url, transcript, prompt_name, "
+            "model, ai_response, processed_at) VALUES ('old', 't', 'u', 'x', 'p', 'm', 'r', 'now')"
+        )
+
+    row = Database(path).get_summary("old")
+
+    assert row is not None
+    assert (row["effort"], row["tokens_thinking"], row["duration_ms"]) == (None, None, None)

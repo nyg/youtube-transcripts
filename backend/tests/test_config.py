@@ -46,3 +46,14 @@ def test_interval_minutes_tolerated_alongside_schedule(tmp_path):
 def test_resend_from_required_when_enabled(tmp_path):
     with pytest.raises(ConfigError, match="resend_from"):
         load_config(_write(tmp_path, "monitoring:\n  enabled: true\n"))
+
+
+def test_ask_output_cap_defaults_and_is_read(tmp_path):
+    assert load_config(_write(tmp_path, "ask: {}\n")).ask.max_output_tokens == 8192
+    cfg = load_config(_write(tmp_path, "ask:\n  max_output_tokens: 16000\n"))
+    assert cfg.ask.max_output_tokens == 16000
+
+
+def test_ask_output_cap_must_be_positive(tmp_path):
+    with pytest.raises(ConfigError, match="ask.max_output_tokens"):
+        load_config(_write(tmp_path, "ask:\n  max_output_tokens: 0\n"))

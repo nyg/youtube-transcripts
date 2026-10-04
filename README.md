@@ -14,6 +14,7 @@ a local web app.
   you explicitly approve
 - Watch per-video progress while summaries are generated, then browse them
   with rendered Markdown and stored transcripts
+- Choose the **model, effort and output cap per prompt**, and per question in the Ask tab — there is no global model
 - Give a prompt an **entity kind and stance labels** (coin + bullish/bearish,
   product + recommend/avoid, …) and every video also yields **structured
   mentions**: entity, stance, confidence, quote and timestamp. The Mentions tab
@@ -97,8 +98,7 @@ checkout.
    in the estimate.
 5. **Watch progress** — each video goes queued → processing → done/failed;
    actual cost per video is shown when finished.
-6. **Browse summaries** — the *Summaries* tab renders each summary's Markdown,
-   with model/prompt/cost/token badges and the stored transcript on demand.
+6. **Browse summaries** — the *Summaries* tab renders each summary's Markdown, with model/prompt/cost/token badges and the stored transcript on demand. "Show stats" splits the output into thinking and response tokens and shows how much of the output cap was used, the assumed output against the actual, and the duration — use it to tune the prompt's effort, max output and est. output.
 
 ## Configuration (`~/.config/yt-summarizer/config.yaml`)
 
@@ -111,9 +111,8 @@ the UI. The config file holds global settings only:
 | `transcript_languages` | Preferred transcript languages, in order; falls back to the original-language auto captions |
 | `youtube_request_interval` | Minimum seconds between YouTube requests |
 | `cookies_file` | Optional Netscape-format cookies file for higher rate limits |
-| `model` | Claude model ID (default `claude-opus-5-5`) |
-| `max_output_tokens` | Hard cap on response length |
-| `pricing` | $/1M input & output tokens per model — used for cost math |
+| `pricing` | $/1M input & output tokens per model — used for cost math. Also the list of models you can choose in the UI, so only list models that accept an effort level |
+| `ask.max_context_tokens` / `estimated_output_tokens` / `max_output_tokens` | Ask tab: context ceiling, assumed answer length, and hard cap on thinking plus answer |
 | `monitoring.enabled` | Turn the background monitor on |
 | `monitoring.schedule` | 5-field cron expression for when to check, in the **server's local time** (default `"0 * * * *"` — every hour on the hour) |
 | `monitoring.run_on_start` | Also run one catch-up cycle at startup (default `true`) |
@@ -121,6 +120,8 @@ the UI. The config file holds global settings only:
 | `monitoring.daily_budget_usd` | Hard spend cap per UTC day across all channels |
 | `monitoring.resend_from` / `subject_prefix` | Digest sender address and subject prefix |
 | `database` | SQLite file path. Unset (default) → `$XDG_DATA_HOME/yt-summarizer/videos.db` (i.e. `~/.local/share/yt-summarizer/videos.db`). An absolute path is used as-is; a relative path resolves under the XDG data dir |
+
+Each prompt carries its own model, effort and output cap, set in "Manage prompts". A prompt without a model or an effort cannot run, so prompts created before this was per prompt need both chosen once. The output cap covers thinking plus response; raise it when you raise the effort.
 
 Secrets live in a `.env` next to the config file
 (`~/.config/yt-summarizer/.env`, or `backend/.env` as a fallback) —

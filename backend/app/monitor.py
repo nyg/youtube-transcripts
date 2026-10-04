@@ -38,7 +38,7 @@ from yt_summarizer.transcripts import segments_to_json
 from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 
 from .jobs import JobRegistry
-from .prompts import extraction_for
+from .prompts import extraction_for, settings_for
 
 log = logging.getLogger(__name__)
 
@@ -199,6 +199,13 @@ class ChannelMonitor:
                 )
                 continue
             prompt_name = prompt_row["name"]
+            settings = settings_for(prompt_row)
+            if settings is None:
+                log.warning(
+                    "Monitor: prompt %r of channel %r has no model or effort — skipping",
+                    prompt_name, channel["label"],
+                )
+                continue
             prompt_text = prompt_row["text"]
             prompt_output_tokens = prompt_row["estimated_output_tokens"]
             extraction = extraction_for(self._db, prompt_row)
@@ -239,9 +246,11 @@ class ChannelMonitor:
 
                 # Budget pre-check at worst case (full max_output_tokens).
                 est = self._summarizer.estimate(
-                    prompt_text, transcript, prompt_output_tokens, extraction
+                    settings, prompt_text, transcript, prompt_output_tokens, extraction
                 )
-                worst = self._summarizer.cost(est.input_tokens, self._summarizer.max_output_tokens)
+                worst = self._summarizer.cost(
+                    settings.model, est.input_tokens, settings.max_output_tokens
+                )
                 if budget > 0 and worst is not None and spent + worst > budget:
                     log.info(
                         "Monitor: daily budget $%.2f reached (spent $%.4f) — "
@@ -252,7 +261,9 @@ class ChannelMonitor:
                     break
 
                 try:
-                    summary = self._summarizer.summarize(prompt_text, transcript, extraction)
+                    summary = self._summarizer.summarize(
+                        settings, prompt_text, transcript, extraction
+                    )
                 except SummarizerError as exc:
                     log.error("Monitor: failed to summarize %s: %s", video.video_id, exc)
                     result.failed += 1
@@ -267,12 +278,18 @@ class ChannelMonitor:
                     transcript_segments=segments_to_json(transcript.segments),
                     mentions=summary.mentions,
                     prompt_name=prompt_name,
-                    model=cfg.model,
+                    model=settings.model,
                     ai_response=summary.text,
                     tokens_input=summary.tokens_input,
                     tokens_output=summary.tokens_output,
                     cost_usd=summary.cost_usd,
                     channel_id=channel["id"],
+                    effort=settings.effort,
+                    max_output_tokens=settings.max_output_tokens,
+                    estimated_output_tokens=prompt_output_tokens,
+                    tokens_thinking=summary.tokens_thinking,
+                    stop_reason=summary.stop_reason,
+                    duration_ms=summary.duration_ms,
                 )
                 processed.add(video.video_id)
                 spent += summary.cost_usd or 0.0

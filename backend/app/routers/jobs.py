@@ -36,9 +36,7 @@ def create_job(body: JobCreate, request: Request) -> JobCreated:
         raise HTTPException(status_code=422, detail=detail)
 
     try:
-        job = state.jobs.start(
-            estimate, video_ids, state.db, state.summarizer, state.config.model
-        )
+        job = state.jobs.start(estimate, video_ids, state.db, state.summarizer)
     except JobConflictError:
         state.estimates.restore(estimate)
         raise HTTPException(status_code=409, detail="A summarization job is already running")

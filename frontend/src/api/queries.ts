@@ -95,6 +95,9 @@ export function useAddPrompt() {
       name: string
       text: string
       estimatedOutputTokens: number
+      model: string
+      effort: string
+      maxOutputTokens: number
       entityKind?: string
       stanceLabels?: string[]
     }) =>
@@ -104,6 +107,9 @@ export function useAddPrompt() {
           name: vars.name,
           text: vars.text,
           estimated_output_tokens: vars.estimatedOutputTokens,
+          model: vars.model,
+          effort: vars.effort,
+          max_output_tokens: vars.maxOutputTokens,
           entity_kind: vars.entityKind ?? null,
           stance_labels: vars.stanceLabels ?? [],
         }),
@@ -119,6 +125,9 @@ export function useUpdatePrompt() {
       promptId: number
       text?: string
       estimatedOutputTokens?: number
+      model?: string
+      effort?: string
+      maxOutputTokens?: number
       entityKind?: string
       stanceLabels?: string[]
     }) =>
@@ -128,6 +137,11 @@ export function useUpdatePrompt() {
           ...(vars.text !== undefined && { text: vars.text }),
           ...(vars.estimatedOutputTokens !== undefined && {
             estimated_output_tokens: vars.estimatedOutputTokens,
+          }),
+          ...(vars.model !== undefined && { model: vars.model }),
+          ...(vars.effort !== undefined && { effort: vars.effort }),
+          ...(vars.maxOutputTokens !== undefined && {
+            max_output_tokens: vars.maxOutputTokens,
           }),
           ...(vars.entityKind !== undefined && { entity_kind: vars.entityKind }),
           ...(vars.stanceLabels !== undefined && { stance_labels: vars.stanceLabels }),
@@ -274,6 +288,8 @@ export function useEstimateQuestion() {
   return useMutation({
     mutationFn: (vars: {
       question: string
+      model: string
+      effort: string
       channelId: number | undefined
       since?: string
     }) =>
@@ -281,6 +297,8 @@ export function useEstimateQuestion() {
         method: "POST",
         body: JSON.stringify({
           question: vars.question,
+          model: vars.model,
+          effort: vars.effort,
           channel_id: vars.channelId ?? null,
           since: vars.since ?? null,
         }),

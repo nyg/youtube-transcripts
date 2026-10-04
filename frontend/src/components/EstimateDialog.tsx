@@ -91,7 +91,7 @@ export function EstimateDialog({
 
         {result && (
           <p className="text-muted-foreground text-xs">
-            Model {result.model}, prompt “{result.prompt_name}”
+            Model {result.model} at {result.effort} effort, prompt “{result.prompt_name}”
             {assumedTokens != null &&
               `, assuming ~${assumedTokens.toLocaleString()} output tokens per video`}
             .

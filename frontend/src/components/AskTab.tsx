@@ -6,9 +6,11 @@ import { ApiError } from "@/api/client"
 import {
   useAskQuestion,
   useEstimateQuestion,
+  useMeta,
   useQuestions,
 } from "@/api/queries"
 import { AnswerCard } from "@/components/AnswerCard"
+import { EffortSelect, ModelSelect } from "@/components/ModelSettingsSelects"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -35,6 +37,11 @@ export function AskTab({ channelId }: { channelId: number }) {
   const [question, setQuestion] = useState("")
   const [period, setPeriod] = useState("30")
   const [allChannels, setAllChannels] = useState(false)
+  const [storedModel, setStoredModel] = useState(() => localStorage.getItem("askModel") ?? "")
+  const [effort, setEffort] = useState(() => localStorage.getItem("askEffort") ?? "")
+
+  const { data: meta } = useMeta()
+  const model = meta && !meta.models.includes(storedModel) ? "" : storedModel
 
   const estimateQuestion = useEstimateQuestion()
   const askQuestion = useAskQuestion()
@@ -47,14 +54,27 @@ export function AskTab({ channelId }: { channelId: number }) {
   }, [period])
 
   const estimate = estimateQuestion.data
-  const canEstimate = question.trim().length > 3 && !estimateQuestion.isPending
+  const canEstimate =
+    question.trim().length > 3 && !!model && !!effort && !estimateQuestion.isPending
 
   const runEstimate = () => {
     if (!canEstimate) return
     estimateQuestion.mutate(
-      { question: question.trim(), channelId: scope, since },
+      { question: question.trim(), model, effort, channelId: scope, since },
       { onError: (error) => toast.error(error.message) },
     )
+  }
+
+  const chooseModel = (value: string) => {
+    setStoredModel(value)
+    localStorage.setItem("askModel", value)
+    estimateQuestion.reset()
+  }
+
+  const chooseEffort = (value: string) => {
+    setEffort(value)
+    localStorage.setItem("askEffort", value)
+    estimateQuestion.reset()
   }
 
   const approve = () => {
@@ -100,6 +120,8 @@ export function AskTab({ channelId }: { channelId: number }) {
             ))}
           </SelectContent>
         </Select>
+        <ModelSelect label="Model for the answer" value={model} onChange={chooseModel} />
+        <EffortSelect label="Effort for the answer" value={effort} onChange={chooseEffort} />
         <div className="flex items-center gap-2">
           <Checkbox
             id="ask-all-channels"
@@ -130,7 +152,9 @@ export function AskTab({ channelId }: { channelId: number }) {
             <Badge variant="outline">
               {estimate.input_tokens.toLocaleString()} input tokens
             </Badge>
-            <Badge variant="outline">{estimate.model}</Badge>
+            <Badge variant="outline">
+              {estimate.model} · {estimate.effort}
+            </Badge>
             <Button className="ml-auto" onClick={approve} disabled={askQuestion.isPending}>
               {askQuestion.isPending && <Loader2 className="animate-spin" />}
               Approve — ask Claude

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from yt_summarizer.analysis import Source
-from yt_summarizer.claude_client import CostEstimate, Extraction
+from yt_summarizer.claude_client import CostEstimate, Extraction, ModelSettings
 from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video
 
@@ -36,6 +36,7 @@ class PreparedEstimate:
     channel_id: int
     prompt_name: str
     prompt_text: str
+    settings: ModelSettings
     extraction: Extraction | None
     items: dict[str, PreparedVideo]  # keyed by video_id, insertion-ordered
 
@@ -47,6 +48,7 @@ class PreparedQuestion:
     question: str
     since: str | None
     until: str | None
+    settings: ModelSettings
     context: str
     sources: list[Source]
     estimate: CostEstimate
@@ -70,12 +72,13 @@ class EstimateStore(Generic[T]):
         channel_id: int,
         prompt_name: str,
         prompt_text: str,
+        settings: ModelSettings,
         extraction: Extraction | None,
         items: dict[str, PreparedVideo],
     ) -> str:
         estimate_id = uuid.uuid4().hex
         entry = PreparedEstimate(
-            estimate_id, channel_id, prompt_name, prompt_text, extraction, items
+            estimate_id, channel_id, prompt_name, prompt_text, settings, extraction, items
         )
         return self.add(estimate_id, entry)  # type: ignore[arg-type]
 

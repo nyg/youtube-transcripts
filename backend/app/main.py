@@ -94,7 +94,10 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
         log.info("Imported %d prompt(s) from config.yaml into the database", len(legacy))
     else:
         db.add_prompt(_STARTER_PROMPT_NAME, _STARTER_PROMPT_TEXT, 2000)
-        log.info("Seeded a starter %r prompt", _STARTER_PROMPT_NAME)
+        log.info(
+            "Seeded a starter %r prompt — choose its model and effort in Manage prompts",
+            _STARTER_PROMPT_NAME,
+        )
 
 
 @asynccontextmanager
@@ -114,7 +117,7 @@ async def lifespan(app: FastAPI):
         log.info("Indexed %d stored summar(ies) for search", indexed)
     app.state.config = cfg
     app.state.db = db
-    app.state.summarizer = ClaudeSummarizer(cfg.model, cfg.max_output_tokens, cfg.pricing)
+    app.state.summarizer = ClaudeSummarizer(cfg.pricing)
     app.state.estimates = EstimateStore()
     app.state.questions = EstimateStore()
     app.state.jobs = JobRegistry()

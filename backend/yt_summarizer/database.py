@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .chunking import Chunk, build_chunks, fts_query
+from .config import DEFAULT_MAX_OUTPUT_TOKENS
 from .mentions import Mention, entity_key
 from .transcripts import segments_from_json
 
@@ -91,6 +92,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
 """
 
 
+# How a summary was produced; NULL on rows saved before these were recorded.
+_RUN_STATS_COLUMNS = {
+    "effort": "TEXT",
+    "max_output_tokens": "INTEGER",
+    "estimated_output_tokens": "INTEGER",
+    "tokens_thinking": "INTEGER",
+    "stop_reason": "TEXT",
+    "duration_ms": "INTEGER",
+}
+
+
 def _replace_chunks(conn: sqlite3.Connection, video_id: str, chunks: Sequence[Chunk]) -> None:
     conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
     conn.executemany(
@@ -111,11 +123,24 @@ class Database:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN channel_id INTEGER")
             if "transcript_segments" not in columns:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_segments TEXT")
+            for column, kind in _RUN_STATS_COLUMNS.items():
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE video_summaries ADD COLUMN {column} {kind}")
             prompt_columns = {row[1] for row in conn.execute("PRAGMA table_info(prompts)")}
             if "entity_kind" not in prompt_columns:
                 conn.execute("ALTER TABLE prompts ADD COLUMN entity_kind TEXT")
             if "stance_labels" not in prompt_columns:
                 conn.execute("ALTER TABLE prompts ADD COLUMN stance_labels TEXT")
+            # Older prompts ran on a global model; theirs stay unset until chosen.
+            if "model" not in prompt_columns:
+                conn.execute("ALTER TABLE prompts ADD COLUMN model TEXT")
+            if "effort" not in prompt_columns:
+                conn.execute("ALTER TABLE prompts ADD COLUMN effort TEXT")
+            if "max_output_tokens" not in prompt_columns:
+                conn.execute(
+                    "ALTER TABLE prompts ADD COLUMN max_output_tokens "
+                    f"INTEGER NOT NULL DEFAULT {DEFAULT_MAX_OUTPUT_TOKENS}"
+                )
             # Databases created before per-channel prompts / recipients lack these.
             channel_columns = {row[1] for row in conn.execute("PRAGMA table_info(channels)")}
             if "prompt_name" not in channel_columns:
@@ -229,13 +254,17 @@ class Database:
         estimated_output_tokens: int,
         entity_kind: str | None = None,
         stance_labels: list[str] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> sqlite3.Row:
         """Insert a prompt and return its row. Raises sqlite3.IntegrityError on a duplicate name."""
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO prompts (name, text, estimated_output_tokens, created_at, "
-                "entity_kind, stance_labels) VALUES (?, ?, ?, ?, ?, ?)",
+                "entity_kind, stance_labels, model, effort, max_output_tokens) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     name,
                     text,
@@ -243,6 +272,9 @@ class Database:
                     created_at,
                     entity_kind or None,
                     json.dumps(stance_labels) if stance_labels else None,
+                    model,
+                    effort,
+                    max_output_tokens,
                 ),
             )
             row = conn.execute(
@@ -259,9 +291,12 @@ class Database:
         estimated_output_tokens: int | None = None,
         entity_kind: str | None = None,
         stance_labels: list[str] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> sqlite3.Row | None:
-        """Update a prompt's text and/or estimated output tokens (its name is immutable,
-        since channels reference it by name). Returns the updated row, or None if missing.
+        """Update the given fields of a prompt (its name is immutable, since channels
+        reference it by name). Returns the updated row, or None if missing.
 """
         sets: list[str] = []
         params: list[object] = []
@@ -277,6 +312,14 @@ class Database:
         if stance_labels is not None:
             sets.append("stance_labels = ?")
             params.append(json.dumps(stance_labels) if stance_labels else None)
+        for column, value in (
+            ("model", model),
+            ("effort", effort),
+            ("max_output_tokens", max_output_tokens),
+        ):
+            if value is not None:
+                sets.append(f"{column} = ?")
+                params.append(value)
         if not sets:
             return self.get_prompt(prompt_id)
         params.append(prompt_id)
@@ -350,6 +393,12 @@ class Database:
         channel_id: int | None = None,
         transcript_segments: str | None = None,
         mentions: Sequence[Mention] = (),
+        effort: str | None = None,
+        max_output_tokens: int | None = None,
+        estimated_output_tokens: int | None = None,
+        tokens_thinking: int | None = None,
+        stop_reason: str | None = None,
+        duration_ms: int | None = None,
     ) -> None:
         processed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
@@ -358,8 +407,10 @@ class Database:
                 INSERT INTO video_summaries (
                     video_id, title, url, published_at, transcript, prompt_name,
                     model, ai_response, tokens_input, tokens_output, cost_usd,
-                    processed_at, channel_id, transcript_segments
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    processed_at, channel_id, transcript_segments,
+                    effort, max_output_tokens, estimated_output_tokens,
+                    tokens_thinking, stop_reason, duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                     title=excluded.title,
                     url=excluded.url,
@@ -373,7 +424,13 @@ class Database:
                     cost_usd=excluded.cost_usd,
                     processed_at=excluded.processed_at,
                     channel_id=excluded.channel_id,
-                    transcript_segments=excluded.transcript_segments
+                    transcript_segments=excluded.transcript_segments,
+                    effort=excluded.effort,
+                    max_output_tokens=excluded.max_output_tokens,
+                    estimated_output_tokens=excluded.estimated_output_tokens,
+                    tokens_thinking=excluded.tokens_thinking,
+                    stop_reason=excluded.stop_reason,
+                    duration_ms=excluded.duration_ms
                 """,
                 (
                     video_id,
@@ -390,6 +447,12 @@ class Database:
                     processed_at,
                     channel_id,
                     transcript_segments,
+                    effort,
+                    max_output_tokens,
+                    estimated_output_tokens,
+                    tokens_thinking,
+                    stop_reason,
+                    duration_ms,
                 ),
             )
             conn.execute("DELETE FROM mentions WHERE video_id = ?", (video_id,))

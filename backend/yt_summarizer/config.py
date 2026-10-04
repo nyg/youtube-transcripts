@@ -13,6 +13,7 @@ from . import paths
 
 # Top of every hour, in the server's local time.
 DEFAULT_SCHEDULE = "0 * * * *"
+DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 
 class ConfigError(Exception):
@@ -47,6 +48,7 @@ class AskConfig:
 
     max_context_tokens: int
     estimated_output_tokens: int
+    max_output_tokens: int
 
 
 @dataclass(frozen=True)
@@ -55,8 +57,6 @@ class Config:
     transcript_languages: tuple[str, ...]
     youtube_request_interval: float
     cookies_file: Path | None
-    model: str
-    max_output_tokens: int
     pricing: dict[str, ModelPricing]
     database: Path
     monitor: MonitorConfig
@@ -97,8 +97,6 @@ def load_config(path: Path) -> Config:
         transcript_languages=tuple(str(lang) for lang in raw.get("transcript_languages") or ["en"]),
         youtube_request_interval=float(raw.get("youtube_request_interval", 2.0)),
         cookies_file=Path(str(raw["cookies_file"])).expanduser() if raw.get("cookies_file") else None,
-        model=str(raw.get("model", "claude-opus-5-5")),
-        max_output_tokens=int(raw.get("max_output_tokens", 8192)),
         pricing=pricing,
         database=paths.resolve_database_path(raw.get("database")),
         monitor=monitor,
@@ -113,6 +111,7 @@ def _parse_ask(raw: object) -> AskConfig:
         ask = AskConfig(
             max_context_tokens=int(raw.get("max_context_tokens", 100_000)),
             estimated_output_tokens=int(raw.get("estimated_output_tokens", 1500)),
+            max_output_tokens=int(raw.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS)),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError("'ask' values must be whole numbers") from exc
@@ -120,6 +119,8 @@ def _parse_ask(raw: object) -> AskConfig:
         raise ConfigError("ask.max_context_tokens must be at least 1000")
     if ask.estimated_output_tokens < 1:
         raise ConfigError("ask.estimated_output_tokens must be at least 1")
+    if ask.max_output_tokens < 1:
+        raise ConfigError("ask.max_output_tokens must be at least 1")
     return ask
 
 
