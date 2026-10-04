@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -202,13 +202,21 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
 
   const models = meta?.models ?? []
   const families = Object.keys(settings.pricing)
-  const fields = [
-    ...YOUTUBE_FIELDS,
-    ...ASK_FIELDS,
-    ...MONITORING_FIELDS,
-    ...families.flatMap((family) => [priceField(family, "input"), priceField(family, "output")]),
+  const tabs = [
+    {
+      value: "models",
+      label: "Models",
+      fields: families.flatMap((family) => [
+        priceField(family, "input"),
+        priceField(family, "output"),
+      ]),
+    },
+    { value: "youtube", label: "YouTube", fields: YOUTUBE_FIELDS },
+    { value: "ask", label: "Ask", fields: ASK_FIELDS },
+    { value: "monitoring", label: "Monitoring", fields: MONITORING_FIELDS },
   ]
-  const canSave = fields.every((field) => isValid(field, draft))
+  const hasInvalid = (fields: Field[]) => fields.some((field) => !isValid(field, draft))
+  const canSave = !tabs.some((tab) => hasInvalid(tab.fields))
 
   const set = (path: string, value: string | boolean) =>
     setDraft((current) => ({ ...current, [path]: value }))
@@ -232,95 +240,103 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
 
   return (
     <>
-      <Section title="Models and prices">
-        <p className="text-muted-foreground text-xs sm:col-span-2">
-          Prices are in USD per million tokens. Update them manually when a model
-          changes.
-        </p>
-        <div className="space-y-2 sm:col-span-2">
-          <div className="flex gap-x-3 text-xs font-medium" aria-hidden>
-            <span className="flex-1" />
-            <span className="w-24">Input $</span>
-            <span className="w-24">Output $</span>
-          </div>
-          <ul className="space-y-2">
-            {models.map((model) => (
-              <li key={model.family} className="space-y-1">
-                <div className="flex items-center gap-x-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium capitalize">{model.family}</div>
-                    <div className="text-muted-foreground text-xs">
-                      {model.name} · {model.id}
+      <Tabs defaultValue="models">
+        <TabsList>
+          {tabs.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value}>
+              {tab.label}
+              {hasInvalid(tab.fields) && (
+                <span className="bg-destructive size-1.5 rounded-full" title="Invalid value" />
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <div className="grid pt-2">
+          <Panel value="models">
+            <p className="text-muted-foreground text-xs sm:col-span-2">
+              Prices are in USD per million tokens. Update them manually when a model
+              changes.
+            </p>
+            <div className="space-y-2 sm:col-span-2">
+              <div className="flex gap-x-3 text-xs font-medium" aria-hidden>
+                <span className="flex-1" />
+                <span className="w-24">Input $</span>
+                <span className="w-24">Output $</span>
+              </div>
+              <ul className="space-y-2">
+                {models.map((model) => (
+                  <li key={model.family} className="space-y-1">
+                    <div className="flex items-center gap-x-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium capitalize">{model.family}</div>
+                        <div className="text-muted-foreground text-xs">
+                          {model.name} · {model.id}
+                        </div>
+                      </div>
+                      {(["input", "output"] as const).map((side) => (
+                        <SettingField
+                          key={side}
+                          className="w-24"
+                          field={priceField(model.family, side)}
+                          draft={draft}
+                          onChange={set}
+                          hideLabel
+                        />
+                      ))}
                     </div>
-                  </div>
-                  {(["input", "output"] as const).map((side) => (
-                    <SettingField
-                      key={side}
-                      className="w-24"
-                      field={priceField(model.family, side)}
-                      draft={draft}
-                      onChange={set}
-                      hideLabel
-                    />
-                  ))}
-                </div>
-                {!model.price_confirmed && (
-                  <p className="text-destructive text-xs">
-                    New model — check its price, then save.
-                  </p>
-                )}
-              </li>
+                    {!model.price_confirmed && (
+                      <p className="text-destructive text-xs">
+                        New model — check its price, then save.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="sm:col-span-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={refresh}
+                disabled={refreshModels.isPending}
+              >
+                {refreshModels.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                Check for new models
+              </Button>
+            </div>
+          </Panel>
+
+          <Panel value="youtube">
+            {YOUTUBE_FIELDS.map((field) => (
+              <SettingField key={field.path} field={field} draft={draft} onChange={set} />
             ))}
-          </ul>
+          </Panel>
+
+          <Panel value="ask">
+            {ASK_FIELDS.map((field) => (
+              <SettingField key={field.path} field={field} draft={draft} onChange={set} />
+            ))}
+          </Panel>
+
+          <Panel value="monitoring">
+            <Toggle
+              path="monitoring.enabled"
+              label="Check channels for new videos automatically"
+              draft={draft}
+              onChange={set}
+            />
+            <Toggle
+              path="monitoring.run_on_start"
+              label="Also check when the server starts"
+              draft={draft}
+              onChange={set}
+            />
+            {MONITORING_FIELDS.map((field) => (
+              <SettingField key={field.path} field={field} draft={draft} onChange={set} />
+            ))}
+          </Panel>
         </div>
-        <div className="sm:col-span-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={refreshModels.isPending}
-          >
-            {refreshModels.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            Check for new models
-          </Button>
-        </div>
-      </Section>
-
-      <Separator />
-
-      <Section title="YouTube">
-        {YOUTUBE_FIELDS.map((field) => (
-          <SettingField key={field.path} field={field} draft={draft} onChange={set} />
-        ))}
-      </Section>
-
-      <Separator />
-
-      <Section title="Ask">
-        {ASK_FIELDS.map((field) => (
-          <SettingField key={field.path} field={field} draft={draft} onChange={set} />
-        ))}
-      </Section>
-
-      <Separator />
-
-      <Section title="Automatic monitoring">
-        <Toggle
-          path="monitoring.enabled"
-          label="Check channels for new videos automatically"
-          draft={draft}
-          onChange={set}
-        />
-        <Toggle
-          path="monitoring.run_on_start"
-          label="Also check when the server starts"
-          draft={draft}
-          onChange={set}
-        />
-        {MONITORING_FIELDS.map((field) => (
-          <SettingField key={field.path} field={field} draft={draft} onChange={set} />
-        ))}
-      </Section>
+      </Tabs>
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onDone}>
@@ -335,12 +351,19 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Panel({ value, children }: { value: string; children: ReactNode }) {
   return (
-    <section className="space-y-3">
-      <h3 className="font-medium">{title}</h3>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
-    </section>
+    // Every panel stays mounted in the same grid cell, so the dialog keeps the
+    // height of the tallest one instead of jumping when the tab changes. Without
+    // transition-none, a button's transition-all delays its hiding and it shows
+    // through the next panel for a moment.
+    <TabsContent
+      value={value}
+      forceMount
+      className="col-start-1 row-start-1 grid content-start gap-3 data-[state=inactive]:invisible data-[state=inactive]:**:transition-none sm:grid-cols-2"
+    >
+      {children}
+    </TabsContent>
   )
 }
 
