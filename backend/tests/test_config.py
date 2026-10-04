@@ -1,4 +1,4 @@
-"""Settings parsing, and what an older config.yaml still contributes."""
+"""Settings parsing, secrets, and what an older config.yaml still contributes."""
 
 from __future__ import annotations
 
@@ -6,13 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from yt_summarizer import config
 from yt_summarizer.config import (
     DEFAULT_PRICING,
     ConfigError,
     ModelPricing,
     legacy_settings,
+    load_secrets,
     parse_settings,
-    read_config_file,
+    read_legacy_config,
     settings_to_raw,
 )
 
@@ -108,21 +110,56 @@ def test_settings_survive_a_round_trip_through_their_stored_form():
     assert cfg.priced_models["opus"] == "claude-opus-6"
 
 
-def test_config_file_must_exist_and_hold_a_mapping(tmp_path):
-    listing = tmp_path / "config.yaml"
-    listing.write_text("- a\n- b\n", encoding="utf-8")
+def _write(tmp_path, body: str) -> Path:
+    path = tmp_path / "config.yaml"
+    path.write_text(body, encoding="utf-8")
+    return path
 
-    with pytest.raises(ConfigError, match="not found"):
-        read_config_file(tmp_path / "missing.yaml")
+
+def test_an_older_config_file_must_hold_a_mapping(tmp_path):
     with pytest.raises(ConfigError, match="YAML mapping"):
-        read_config_file(listing)
+        read_legacy_config(_write(tmp_path, "- a\n- b\n"))
+
+
+@pytest.mark.parametrize("configured", ["elsewhere.db", "/somewhere/else/videos.db"])
+def test_a_database_kept_elsewhere_is_refused_rather_than_ignored(
+    monkeypatch, tmp_path, configured
+):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    with pytest.raises(ConfigError, match="no longer read"):
+        read_legacy_config(_write(tmp_path, f"database: {configured}\n"))
+
+
+def test_a_database_key_naming_the_default_location_is_tolerated(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    default = tmp_path / "yt-summarizer" / "videos.db"
+
+    relative = read_legacy_config(_write(tmp_path, "database: videos.db\n"))
+    absolute = read_legacy_config(_write(tmp_path, f"database: {default}\n"))
+
+    assert relative["database"] == "videos.db"
+    assert absolute["database"] == str(default)
+
+
+def test_secrets_are_read_from_the_config_dir_then_the_default_search(monkeypatch, tmp_path):
+    loaded: list[Path | None] = []
+    monkeypatch.setattr(config, "load_dotenv", lambda path=None: loaded.append(path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    elsewhere = tmp_path / "profile" / "config.yaml"
+
+    load_secrets(None)
+    load_secrets(elsewhere)
+
+    home = tmp_path / "yt-summarizer" / ".env"
+    assert loaded == [home, None, tmp_path / "profile" / ".env", home, None]
 
 
 def test_an_older_config_file_carries_its_settings_over(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(
         "max_videos_fetch: 10\n"
-        "database: elsewhere.db\n"
+        "database: videos.db\n"
         "prompts: {old: text}\n"
         "pricing:\n"
         "  claude-opus-5-5: {input: 6.0, output: 30.0}\n"
@@ -133,7 +170,7 @@ def test_an_older_config_file_carries_its_settings_over(tmp_path):
         encoding="utf-8",
     )
 
-    legacy = legacy_settings(read_config_file(path))
+    legacy = legacy_settings(read_legacy_config(path))
     cfg = parse_settings(legacy)
 
     assert set(legacy) == {"max_videos_fetch", "pricing", "monitoring"}
@@ -142,8 +179,3 @@ def test_an_older_config_file_carries_its_settings_over(tmp_path):
     assert cfg.pricing["opus"] == ModelPricing(6.0, 30.0)
     assert cfg.pricing["sonnet"] == DEFAULT_PRICING["sonnet"]
 
-
-def test_the_bundled_template_holds_no_settings():
-    template = Path(__file__).resolve().parents[1] / "config.example.yaml"
-
-    assert legacy_settings(read_config_file(template)) == {}

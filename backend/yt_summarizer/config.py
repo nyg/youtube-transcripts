@@ -1,4 +1,4 @@
-"""Settings, and the config.yaml that says where the database holding them lives."""
+"""Settings, the secrets, and the config.yaml an older install still has."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import yaml
 from croniter import croniter
 from dotenv import load_dotenv
 
+from . import paths
 from .models import BUILT_IN, FAMILIES, family_of
 
 # Top of every hour, in the server's local time.
@@ -85,19 +86,38 @@ class Settings:
     ask: AskConfig
 
 
-def read_config_file(path: Path) -> dict:
-    # Secrets live in a .env next to the config file; also fall back to the
-    # default search (CWD and parents) so an existing backend/.env keeps working.
-    load_dotenv(path.parent / ".env")
+def load_secrets(legacy_config: Path | None) -> None:
+    # Secrets live in a .env in the config directory, or next to an older config
+    # file kept elsewhere; also fall back to the default search (CWD and parents)
+    # so an existing backend/.env keeps working.
+    if legacy_config is not None:
+        load_dotenv(legacy_config.parent / ".env")
+    load_dotenv(paths.config_home() / ".env")
     load_dotenv()
 
-    if not path.exists():
-        raise ConfigError(f"Config file not found: {path}")
 
+def read_legacy_config(path: Path) -> dict:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} does not contain a YAML mapping")
+    _reject_relocated_database(path, raw.get("database"))
     return raw
+
+
+def _reject_relocated_database(config_file: Path, configured: object) -> None:
+    if not configured:
+        return
+    database = Path(str(configured)).expanduser()
+    if not database.is_absolute():
+        database = paths.data_home() / database
+    if database != paths.database_path():
+        # Opening the default database instead would look like every summary was lost.
+        raise ConfigError(
+            f"{config_file} sets 'database: {configured}', which is no longer read: the "
+            f"database is always {paths.database_path()}. Move yours there, or point "
+            "$XDG_DATA_HOME at the folder holding its yt-summarizer directory, then "
+            "remove that line."
+        )
 
 
 def legacy_settings(file_config: Mapping[str, Any]) -> dict:

@@ -25,9 +25,9 @@ backend/   FastAPI + uvicorn                               (API server :8000)
            │   ├── prompts.py      resolves a prompt row -> Extraction spec
            │   └── schemas.py      Pydantic API models
            └── yt_summarizer/  domain modules
-               ├── config.py       settings parsing/validation, config.yaml + .env
+               ├── config.py       settings parsing/validation, .env, older config.yaml
                ├── models.py       model families, newest model per family (Models API)
-               ├── paths.py        XDG resolution for config file & database
+               ├── paths.py        XDG resolution for the database & secrets
                ├── youtube_client.py  yt-dlp listing, RSS date enrichment
                ├── transcripts.py  caption track selection + json3 parsing (timed)
                ├── mentions.py     the Mention record + entity_key normalization
@@ -58,7 +58,7 @@ cd frontend && pnpm run lint    # oxlint
 ```
 
 Python 3.14 lives in `.venv`. Backend commands run from `backend/` using
-`../.venv/bin/...`. `ANTHROPIC_API_KEY` goes in a `.env` next to the config file
+`../.venv/bin/...`. `ANTHROPIC_API_KEY` goes in `$XDG_CONFIG_HOME/yt-summarizer/.env`
 (only needed for actual summarization, not for listing/browsing).
 
 To verify UI changes without touching the user's real DB or hammering YouTube,
@@ -67,23 +67,22 @@ a scratch dir and seed a test `videos.db` (see `yt_summarizer/database.py`).
 
 ## Conventions & gotchas (read before touching these areas)
 
-**Paths are XDG-based** (`yt_summarizer/paths.py`). `ensure_config()` resolves
-the config to `$XDG_CONFIG_HOME/yt-summarizer/config.yaml`, **creating it on
-first run** by copying `backend/config.example.yaml` (or a leftover
-`backend/config.yaml` from an older install, which holds real settings). The
-checkout is never the live config — only the template is tracked, and
-`backend/config.yaml` is gitignored. `$YT_SUMMARIZER_CONFIG` overrides and is
-never copied to; a failed copy falls back to reading the template in place.
-The file now only says where the database is (`database`); everything else is a
-setting stored in that database (see below).
-Database defaults to `$XDG_DATA_HOME/yt-summarizer/videos.db`, and the
-Makefile's detached-mode logs and PID files to `$XDG_STATE_HOME/yt-summarizer`
+**Paths are XDG-based, and there is no config file** (`yt_summarizer/paths.py`).
+The database is always `$XDG_DATA_HOME/yt-summarizer/videos.db`
+(`paths.database_path()`), secrets are read from
+`$XDG_CONFIG_HOME/yt-summarizer/.env`, and everything else is a setting stored
+in the database (see below). Nothing creates or requires a `config.yaml`. One
+left by an older install (in the config dir, or where `$YT_SUMMARIZER_CONFIG`
+points) is only read to import its settings and prompts on the first start;
+`config.read_legacy_config` refuses to start if it names another `database`,
+because silently opening the default one would look like data loss.
+The Makefile's detached-mode logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
 (`STATE_DIR`; not `$XDG_RUNTIME_DIR`, which is wiped when the user's last
 session ends — `make start` is meant to survive logout). Nothing the app or the
 Makefile writes belongs inside the checkout: don't hardcode a repo-relative
 database, config, or log path.
 
-**Settings live in the DB and are edited in the UI.** The `settings` table holds one JSON value per top-level key (`max_videos_fetch`, `transcript_languages`, `youtube_request_interval`, `cookies_file`, `pricing`, `priced_models`, `monitoring`, `ask`). `config.parse_settings` is the single place they are validated, for the stored values and for `PUT /api/settings` alike (a `ConfigError` becomes a 422). On the first start with an empty table, `app/settings.py` `load_settings` imports whatever an older `config.yaml` still holds (`config.legacy_settings`), then the file is ignored except for `database`. `app.state.settings` is a `SettingsStore`: read `.current` at the time of use and never keep a copy, so a save takes effect without a restart. Saving also re-applies the YouTube pacing and wakes the monitor. Add a setting in `Settings`, `parse_settings`, `settings_to_raw`, `SettingsBody` and the field lists of `SettingsDialog.tsx`.
+**Settings live in the DB and are edited in the UI.** The `settings` table holds one JSON value per top-level key (`max_videos_fetch`, `transcript_languages`, `youtube_request_interval`, `cookies_file`, `pricing`, `priced_models`, `monitoring`, `ask`). `config.parse_settings` is the single place they are validated, for the stored values and for `PUT /api/settings` alike (a `ConfigError` becomes a 422). On the first start with an empty table, `app/settings.py` `load_settings` imports whatever an older `config.yaml` still holds (`config.legacy_settings`), then the file is ignored. `app.state.settings` is a `SettingsStore`: read `.current` at the time of use and never keep a copy, so a save takes effect without a restart. Saving also re-applies the YouTube pacing and wakes the monitor. Add a setting in `Settings`, `parse_settings`, `settings_to_raw`, `SettingsBody` and the field lists of `SettingsDialog.tsx`.
 
 **The monitor is cron-scheduled in local time.** `monitoring.schedule` is a
 5-field cron expression (croniter); `app/monitor.py` recomputes the next fire

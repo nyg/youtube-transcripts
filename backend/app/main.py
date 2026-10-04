@@ -6,16 +6,16 @@ Run from the backend/ directory:  uvicorn app.main:app --reload --port 8000
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from pathlib import Path
+from typing import Any
 
-import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from yt_summarizer import paths, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.config import read_config_file
+from yt_summarizer.config import load_secrets, read_legacy_config
 from yt_summarizer.database import Database
 from yt_summarizer.models import FAMILIES, ModelCatalog, family_of
 
@@ -67,7 +67,7 @@ _STARTER_PROMPT_TEXT = (
 )
 
 
-def _bootstrap_prompts(db: Database, config_file: Path) -> None:
+def _bootstrap_prompts(db: Database, raw: Mapping[str, Any]) -> None:
     """Seed the prompts table on first run.
 
     Prompts used to live in config.yaml. On the first start after that move, import
@@ -77,11 +77,7 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
     """
     if db.list_prompts():
         return
-    try:
-        raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        raw = {}
-    legacy = raw.get("prompts") if isinstance(raw, dict) else None
+    legacy = raw.get("prompts")
     if isinstance(legacy, dict) and legacy:
         est = int(raw.get("estimated_output_tokens", 2000))
         for name, text in legacy.items():
@@ -119,10 +115,10 @@ def _adopt_model_families(db: Database) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config_file = paths.ensure_config()
-    log.info("Loading config from %s", config_file)
-    file_config = read_config_file(config_file)
-    database = paths.resolve_database_path(file_config.get("database"))
+    legacy_config = paths.legacy_config()
+    load_secrets(legacy_config)
+    file_config = read_legacy_config(legacy_config) if legacy_config else {}
+    database = paths.database_path()
     log.info("Using database at %s", database)
     db = Database(database)
     cfg = load_settings(db, file_config)
@@ -130,8 +126,13 @@ async def lifespan(app: FastAPI):
         request_interval=cfg.youtube_request_interval,
         cookiefile=cfg.cookies_file,
     )
-    _bootstrap_prompts(db, config_file)
+    _bootstrap_prompts(db, file_config)
     _adopt_model_families(db)
+    if legacy_config:
+        log.info(
+            "%s is no longer needed: its settings are in the database. You can delete it.",
+            legacy_config,
+        )
     indexed = db.backfill_chunks()
     if indexed:
         log.info("Indexed %d stored summar(ies) for search", indexed)

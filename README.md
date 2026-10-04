@@ -57,16 +57,13 @@ make install              # creates .venv, installs backend + frontend deps
 cp backend/.env.example backend/.env    # then put your ANTHROPIC_API_KEY in it
 ```
 
-On its first start the backend creates `~/.config/yt-summarizer/config.yaml`
-from the `backend/config.example.yaml` template (honouring `$XDG_CONFIG_HOME`)
-and logs where it put it. That file only says where the database lives; the
-checkout is never written to. Settings, channels and prompts are managed in the
-UI and stored in the database.
+There is no config file. Settings, channels and prompts are managed in the UI
+and stored in the database, which the backend creates on its first start at
+`~/.local/share/yt-summarizer/videos.db` (honouring `$XDG_DATA_HOME`); the
+checkout is never written to.
 
-Secrets go in a `.env` next to the config file
-(`~/.config/yt-summarizer/.env`); a `backend/.env` is still picked up as a
-fallback. `$YT_SUMMARIZER_CONFIG` points directly at a config file and
-overrides everything (no copy is made).
+Secrets go in `~/.config/yt-summarizer/.env` (honouring `$XDG_CONFIG_HOME`); a
+`backend/.env` is still picked up as a fallback.
 
 ## Running
 
@@ -124,18 +121,16 @@ Everything is edited in the UI and stored in the database: channels, prompts and
 
 Each prompt carries its own model family, effort and output cap, set in "Manage prompts". A prompt without a model cannot run, nor one without an effort when its model takes one (Haiku takes none). The output cap covers thinking plus response; raise it when you raise the effort.
 
-**`config.yaml`** (`~/.config/yt-summarizer/config.yaml`) holds a single optional key, `database`: the SQLite file path. Unset (default) → `$XDG_DATA_HOME/yt-summarizer/videos.db` (i.e. `~/.local/share/yt-summarizer/videos.db`). An absolute path is used as-is; a relative path resolves under the XDG data dir. A `config.yaml` from an older version that still holds settings is imported into the database on the first start, then ignored; prompts that named a model id move to its family.
-
-Secrets live in a `.env` next to the config file
-(`~/.config/yt-summarizer/.env`, or `backend/.env` as a fallback) —
-`ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
-`config.yaml`.
+Secrets live in `~/.config/yt-summarizer/.env` (or `backend/.env` as a
+fallback) — `ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
+the database.
 
 ## Data & migrating
 
 The database lives at `~/.local/share/yt-summarizer/videos.db` (following the
-XDG Base Directory spec; override with `$XDG_DATA_HOME` or the `database:`
-config key).
+XDG Base Directory spec; relocate it with `$XDG_DATA_HOME`).
+
+**Upgrading from a version with a `config.yaml`.** The file in `~/.config/yt-summarizer/` (or where `$YT_SUMMARIZER_CONFIG` points) is read on the first start: its settings and prompts are imported into the database, and prompts that named a model id move to its family. After that it is no longer needed and can be deleted. If it set `database:` to another location, the backend refuses to start until the database is moved to the XDG location (or `$XDG_DATA_HOME` points at it) and that line is removed.
 
 The schema is upgraded automatically on the next backend start (a `channels`
 table and a `channel_id` column are added).
