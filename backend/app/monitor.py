@@ -1,9 +1,10 @@
 """Background monitor: scheduled checks for new videos, auto-summarize, email digest.
 
 Runs inside the FastAPI process as a daemon thread (started/stopped in the app
-lifespan). Cycles fire on the `monitoring.schedule` cron expression, evaluated in
-the server's local time, so the timing is wall-clock stable and independent of
-when the process was started. One "cycle" per fire:
+lifespan). The thread idles while monitoring is disabled and follows the settings
+as they are edited. Cycles fire on the `monitoring.schedule` cron expression,
+evaluated in the server's local time, so the timing is wall-clock stable and
+independent of when the process was started. One "cycle" per fire:
 
   discover new videos per channel  ->  budget-gate  ->  summarize  ->  save
   ->  email one digest per channel to that channel's recipients.
@@ -32,13 +33,14 @@ from croniter import croniter
 
 from yt_summarizer import markdown_email, notifications, transcripts, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.config import Config
 from yt_summarizer.database import Database
+from yt_summarizer.models import ModelCatalog
 from yt_summarizer.transcripts import segments_to_json
 from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
 
 from .jobs import JobRegistry
 from .prompts import extraction_for, settings_for
+from .settings import SettingsStore
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class _Summarized:
     recipients: list[str]
     video: Video
     text: str
-    cost_usd: float | None
+    cost_usd: float
 
 
 @dataclass
@@ -97,44 +99,62 @@ def _email_date(iso: str) -> str:
 class ChannelMonitor:
     def __init__(
         self,
-        config: Config,
+        settings: SettingsStore,
         db: Database,
         summarizer: ClaudeSummarizer,
         jobs: JobRegistry,
+        catalog: ModelCatalog,
     ) -> None:
-        self._config = config
+        self._settings = settings
         self._db = db
         self._summarizer = summarizer
         self._jobs = jobs
+        self._catalog = catalog
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
-        self._next_run_at: datetime | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
     @property
     def next_run_at(self) -> datetime | None:
-        """When the next scheduled cycle fires; None while not running."""
-        return self._next_run_at
+        """When the next scheduled cycle fires; None while not running or disabled."""
+        running = self._thread is not None and self._thread.is_alive()
+        if not running or not self._settings.current.monitor.enabled:
+            return None
+        return self._next_run(_local_now())
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._wake.clear()
         self._thread = threading.Thread(target=self._loop, name="channel-monitor", daemon=True)
         self._thread.start()
-        log.info(
-            "Channel monitor started — schedule %r (local time), next run %s",
-            self._config.monitor.schedule,
-            self._next_run(_local_now()).strftime("%Y-%m-%d %H:%M %Z"),
-        )
+        self._log_schedule()
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=10)
-        self._next_run_at = None
         log.info("Channel monitor stopped")
+
+    def refresh(self) -> None:
+        """Pick up edited settings: wakes the loop so it re-reads the schedule."""
+        self._wake.set()
+        self._log_schedule()
+
+    def _log_schedule(self) -> None:
+        monitor = self._settings.current.monitor
+        if not monitor.enabled:
+            log.info("Channel monitor idle (enable monitoring in Settings)")
+            return
+        log.info(
+            "Channel monitor on — schedule %r (local time), next run %s",
+            monitor.schedule,
+            self._next_run(_local_now()).strftime("%Y-%m-%d %H:%M %Z"),
+        )
 
     def trigger_async(self) -> None:
         """Run one cycle in a throwaway thread (used by POST /api/monitor/run)."""
@@ -142,21 +162,25 @@ class ChannelMonitor:
 
     def _next_run(self, after: datetime) -> datetime:
         """The first scheduled fire time strictly after `after`."""
-        return croniter(self._config.monitor.schedule, after).get_next(datetime)
+        return croniter(self._settings.current.monitor.schedule, after).get_next(datetime)
 
     def _loop(self) -> None:
         # Optionally catch up on anything posted while we were down, then follow
         # the cron schedule. The next fire time is recomputed every iteration
         # rather than accumulated, so a slow cycle doesn't push the schedule
         # forward and a DST shift resolves itself.
-        if self._config.monitor.run_on_start:
+        monitor = self._settings.current.monitor
+        if monitor.enabled and monitor.run_on_start:
             self._safe_run_cycle()
-        while True:
-            now = _local_now()
-            self._next_run_at = self._next_run(now)
-            delay = max(1.0, (self._next_run_at - now).total_seconds())
-            if self._stop.wait(delay):
-                break
+        while not self._stop.is_set():
+            delay = None
+            if self._settings.current.monitor.enabled:
+                now = _local_now()
+                delay = max(1.0, (self._next_run(now) - now).total_seconds())
+            # Woken by stop() or refresh(): re-read the settings instead of running.
+            if self._wake.wait(delay):
+                self._wake.clear()
+                continue
             self._safe_run_cycle()
 
     def _safe_run_cycle(self) -> None:
@@ -177,7 +201,7 @@ class ChannelMonitor:
             self._jobs.release_monitor()
 
     def _run_cycle_locked(self) -> CycleResult:
-        cfg = self._config
+        cfg = self._settings.current
         budget = cfg.monitor.daily_budget_usd
         spent = self._db.spend_since(_utc_midnight_iso())
         processed = self._db.processed_ids()
@@ -199,7 +223,7 @@ class ChannelMonitor:
                 )
                 continue
             prompt_name = prompt_row["name"]
-            settings = settings_for(prompt_row)
+            settings = settings_for(prompt_row, self._catalog, cfg.pricing)
             if settings is None:
                 log.warning(
                     "Monitor: prompt %r of channel %r has no model or effort — skipping",
@@ -249,9 +273,9 @@ class ChannelMonitor:
                     settings, prompt_text, transcript, prompt_output_tokens, extraction
                 )
                 worst = self._summarizer.cost(
-                    settings.model, est.input_tokens, settings.max_output_tokens
+                    settings, est.input_tokens, settings.max_output_tokens
                 )
-                if budget > 0 and worst is not None and spent + worst > budget:
+                if budget > 0 and spent + worst > budget:
                     log.info(
                         "Monitor: daily budget $%.2f reached (spent $%.4f) — "
                         "deferring remaining videos to a later cycle",
@@ -292,7 +316,7 @@ class ChannelMonitor:
                     duration_ms=summary.duration_ms,
                 )
                 processed.add(video.video_id)
-                spent += summary.cost_usd or 0.0
+                spent += summary.cost_usd
                 result.summaries.append(
                     _Summarized(
                         channel_id=channel["id"],
@@ -319,7 +343,7 @@ class ChannelMonitor:
     # -- helpers -----------------------------------------------------------
 
     def _within_age(self, video: Video) -> bool:
-        max_age = self._config.monitor.max_age_hours
+        max_age = self._settings.current.monitor.max_age_hours
         if max_age <= 0:
             return True
         if not video.published_at:
@@ -334,7 +358,7 @@ class ChannelMonitor:
         return published >= datetime.now(timezone.utc) - timedelta(hours=max_age)
 
     def _maybe_send_email(self, result: CycleResult, budget: float) -> None:
-        mon = self._config.monitor
+        mon = self._settings.current.monitor
         api_key = os.getenv("RESEND_API_KEY", "")
         if not api_key:
             log.warning(
@@ -372,7 +396,7 @@ class ChannelMonitor:
 
     def _build_subject(self, label: str, summaries: list[_Summarized]) -> str:
         """One video → name it in the subject; several → fall back to a count."""
-        prefix = self._config.monitor.subject_prefix
+        prefix = self._settings.current.monitor.subject_prefix
         if len(summaries) != 1:
             return f"{prefix} — {label} ({len(summaries)})"
         # Collapse whitespace: a newline here would be a mail-header break.
@@ -390,7 +414,7 @@ class ChannelMonitor:
             url = html.escape(s.video.url, quote=True)
             channel = html.escape(s.channel_label)
             date = html.escape(_email_date(s.video.published_at or ""))
-            cost = f"${s.cost_usd:.4f}" if s.cost_usd is not None else "n/a"
+            cost = f"${s.cost_usd:.4f}"
             text = markdown_email.render(s.text)
             blocks.append(
                 f'<div style="margin-bottom:28px">'

@@ -6,8 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from yt_summarizer.claude_client import Effort
 from yt_summarizer.config import DEFAULT_MAX_OUTPUT_TOKENS
+from yt_summarizer.models import Effort
 
 MAX_STANCE_LABELS = 20
 
@@ -22,8 +22,8 @@ class PromptIn(BaseModel):
     name: str = Field(min_length=1)
     text: str = Field(min_length=1)
     estimated_output_tokens: int = Field(default=2000, ge=1)
-    model: str = Field(min_length=1)
-    effort: Effort
+    model: str = Field(min_length=1)  # a model family: the newest model of it is used
+    effort: Effort | None = None  # required when the model takes one
     max_output_tokens: int = Field(default=DEFAULT_MAX_OUTPUT_TOKENS, ge=1)
     # Extraction is off while stance_labels is empty.
     entity_kind: str | None = None
@@ -116,17 +116,17 @@ class EstimateItemOut(BaseModel):
     detail: str | None = None
     input_tokens: int | None = None
     estimated_output_tokens: int | None = None
-    cost_usd: float | None = None  # None also when the model has no pricing entry
+    cost_usd: float | None = None
 
 
 class EstimateOut(BaseModel):
     estimate_id: str
-    model: str
-    effort: str
+    model: str  # the model id the family resolved to
+    effort: str | None
     prompt_name: str
     items: list[EstimateItemOut]
     total_input_tokens: int
-    total_cost_usd: float | None
+    total_cost_usd: float
 
 
 class JobCreate(BaseModel):
@@ -186,7 +186,7 @@ class EntityOut(BaseModel):
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1)
     model: str = Field(min_length=1)
-    effort: Effort
+    effort: Effort | None = None
     channel_id: int | None = None  # None = every channel
     since: str | None = None  # UTC ISO 8601
     until: str | None = None
@@ -209,14 +209,14 @@ class SourceOut(BaseModel):
 class QuestionEstimateOut(BaseModel):
     estimate_id: str
     model: str
-    effort: str
+    effort: str | None
     question: str
     mention_count: int
     summary_count: int
     excerpt_count: int
     input_tokens: int
     estimated_output_tokens: int
-    cost_usd: float | None
+    cost_usd: float
 
 
 class QuestionOut(BaseModel):
@@ -273,9 +273,48 @@ class SummaryDetailOut(SummaryOut):
     transcript: str
 
 
+class ModelOut(BaseModel):
+    family: str  # what a prompt or a question chooses
+    id: str  # the newest model of that family
+    name: str
+    efforts: list[str]  # empty when the model takes no effort level
+    price_confirmed: bool  # False once the family moved to a model its price was not saved for
+
+
+class PricingBody(BaseModel):
+    input: float
+    output: float
+
+
+class MonitoringBody(BaseModel):
+    enabled: bool
+    schedule: str  # cron expression, evaluated in the server's local time
+    run_on_start: bool
+    max_videos_check: int
+    max_age_hours: int
+    daily_budget_usd: float
+    resend_from: str
+    subject_prefix: str
+
+
+class AskBody(BaseModel):
+    max_context_tokens: int
+    estimated_output_tokens: int
+    max_output_tokens: int
+
+
+class SettingsBody(BaseModel):
+    max_videos_fetch: int
+    transcript_languages: list[str]
+    youtube_request_interval: float
+    cookies_file: str | None = None
+    pricing: dict[str, PricingBody]  # keyed by model family
+    monitoring: MonitoringBody
+    ask: AskBody
+
+
 class MetaOut(BaseModel):
-    models: list[str]  # the models with a pricing entry in config.yaml
-    efforts: list[str]
+    models: list[ModelOut]
     max_videos_fetch: int
     monitoring_enabled: bool
     monitor_schedule: str  # cron expression, evaluated in the server's local time

@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 
 from app.jobs import JobRegistry
 from app.monitor import ChannelMonitor
+from app.settings import SettingsStore
 from yt_summarizer import notifications, transcripts, youtube_client
 from yt_summarizer.claude_client import CostEstimate, Extraction, ModelSettings, SummaryResult
 from yt_summarizer.mentions import Mention
-from yt_summarizer.config import AskConfig, Config, MonitorConfig
+from yt_summarizer.config import DEFAULT_PRICING, Settings, parse_settings
 from yt_summarizer.database import Database
+from yt_summarizer.models import ModelCatalog
 from yt_summarizer.youtube_client import Video
 
 
@@ -54,7 +55,7 @@ class FakeSummarizer:
         return CostEstimate(input_tokens=1000, estimated_output_tokens=estimated_output_tokens,
                             cost_usd=0.01)
 
-    def cost(self, model: str, tokens_input: int, tokens_output: int) -> float:
+    def cost(self, settings: ModelSettings, tokens_input: int, tokens_output: int) -> float:
         self.worst_case_tokens.append(tokens_output)
         return self._worst
 
@@ -75,36 +76,38 @@ class FakeSummarizer:
 
 
 def _make_config(
-    db_path: Path,
     *,
     enabled: bool = True,
     max_videos_check: int = 5,
     max_age_hours: int = 0,
     daily_budget_usd: float = 1.0,
     schedule: str = "0 * * * *",
-) -> Config:
-    mon = MonitorConfig(
-        enabled=enabled,
-        schedule=schedule,
-        run_on_start=True,
-        max_videos_check=max_videos_check,
-        max_age_hours=max_age_hours,
-        daily_budget_usd=daily_budget_usd,
-        resend_from="from@example.com",
-        subject_prefix="New video summaries",
+) -> Settings:
+    return parse_settings(
+        {
+            "youtube_request_interval": 0.0,
+            "monitoring": {
+                "enabled": enabled,
+                "schedule": schedule,
+                "max_videos_check": max_videos_check,
+                "max_age_hours": max_age_hours,
+                "daily_budget_usd": daily_budget_usd,
+                "resend_from": "from@example.com",
+            },
+        }
     )
-    return Config(
-        max_videos_fetch=25, transcript_languages=("en",),
-        youtube_request_interval=0.0, cookies_file=None, pricing={},
-        database=db_path, monitor=mon,
-        ask=AskConfig(
-            max_context_tokens=100_000, estimated_output_tokens=1500, max_output_tokens=8192
-        ),
+
+
+def _build(
+    cfg: Settings, db: Database, summarizer, jobs: JobRegistry | None = None
+) -> ChannelMonitor:
+    return ChannelMonitor(
+        SettingsStore(db, cfg), db, summarizer, jobs or JobRegistry(), ModelCatalog(lambda: [])
     )
 
 
 def _add_prompt(db: Database, name: str, text: str = "sys", **fields):
-    settings = {"model": "claude-test", "effort": "low", "max_output_tokens": 4096}
+    settings = {"model": "opus", "effort": "low", "max_output_tokens": 4096}
     return db.add_prompt(name, text, 2000, **{**settings, **fields})
 
 
@@ -132,10 +135,10 @@ def test_budget_gate_defers_remaining(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None), _video("v2", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=1.00, max_age_hours=0)
+    cfg = _make_config(daily_budget_usd=1.00, max_age_hours=0)
     summarizer = FakeSummarizer(worst=0.60, actual=0.50)
 
-    result = ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+    result = _build(cfg, db, summarizer).run_cycle()
 
     # v0: 0 + 0.60 <= 1.00 -> summarized (spend 0.50).
     # v1: 0.50 + 0.60 = 1.10 > 1.00 -> deferred.
@@ -149,9 +152,9 @@ def test_no_budget_processes_all(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None), _video("v2", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0, max_age_hours=0)  # 0 = unlimited
+    cfg = _make_config(daily_budget_usd=0.0, max_age_hours=0)  # 0 = unlimited
 
-    result = ChannelMonitor(cfg, db, FakeSummarizer(0.60, 0.50), JobRegistry()).run_cycle()
+    result = _build(cfg, db, FakeSummarizer(0.60, 0.50)).run_cycle()
 
     assert result.summarized == 3
     assert result.budget_hit is False
@@ -163,13 +166,13 @@ def test_deferred_videos_processed_on_next_cycle_with_headroom(tmp_path, monkeyp
     _seed_channel(db)
     _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None)])
     # First cycle: tiny budget only fits one video.
-    cfg_small = _make_config(tmp_path / "v.db", daily_budget_usd=0.60, max_age_hours=0)
-    ChannelMonitor(cfg_small, db, FakeSummarizer(0.60, 0.50), JobRegistry()).run_cycle()
+    cfg_small = _make_config(daily_budget_usd=0.60, max_age_hours=0)
+    _build(cfg_small, db, FakeSummarizer(0.60, 0.50)).run_cycle()
     assert db.processed_ids() == {"v0"}
 
     # Next cycle with a higher cap picks up the deferred one (v0 already done).
-    cfg_big = _make_config(tmp_path / "v.db", daily_budget_usd=100.0, max_age_hours=0)
-    result = ChannelMonitor(cfg_big, db, FakeSummarizer(0.60, 0.50), JobRegistry()).run_cycle()
+    cfg_big = _make_config(daily_budget_usd=100.0, max_age_hours=0)
+    result = _build(cfg_big, db, FakeSummarizer(0.60, 0.50)).run_cycle()
     assert result.summarized == 1
     assert db.processed_ids() == {"v0", "v1"}
 
@@ -182,9 +185,9 @@ def test_age_filter_skips_old_and_undated(tmp_path, monkeypatch):
     old = _video("old", (now - timedelta(hours=100)).isoformat(timespec="seconds"))
     undated = _video("undated", None)
     _patch_youtube(monkeypatch, [recent, old, undated])
-    cfg = _make_config(tmp_path / "v.db", max_age_hours=48, daily_budget_usd=0.0)
+    cfg = _make_config(max_age_hours=48, daily_budget_usd=0.0)
 
-    ChannelMonitor(cfg, db, FakeSummarizer(0.10, 0.10), JobRegistry()).run_cycle()
+    _build(cfg, db, FakeSummarizer(0.10, 0.10)).run_cycle()
 
     assert db.processed_ids() == {"recent"}
 
@@ -195,9 +198,9 @@ def test_skips_cycle_when_slot_reserved(tmp_path, monkeypatch):
     _patch_youtube(monkeypatch, [_video("v0", None)])
     jobs = JobRegistry()
     assert jobs.reserve_for_monitor() is True  # simulate a running job
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
 
-    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), jobs).run_cycle()
+    result = _build(cfg, db, FakeSummarizer(0.1, 0.1), jobs).run_cycle()
 
     assert result.skipped is True
     assert db.processed_ids() == set()
@@ -208,7 +211,7 @@ def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
     _add_prompt(db, "alt", "alt sys")
     db.add_channel("@chan", "Chan", "alt")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
 
     seen: dict[str, str] = {}
 
@@ -223,7 +226,7 @@ def test_per_channel_prompt_is_used(tmp_path, monkeypatch):
             seen["prompt"] = prompt
             return super().summarize(settings, prompt, transcript, extraction)
 
-    ChannelMonitor(cfg, db, RecordingSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    _build(cfg, db, RecordingSummarizer(0.1, 0.1)).run_cycle()
 
     assert seen["prompt"] == "alt sys"  # the channel's "alt" prompt text
 
@@ -232,9 +235,9 @@ def test_channel_without_prompt_is_skipped(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     db.add_channel("@chan", "Chan")  # no prompt assigned
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
 
-    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    result = _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     assert result.summarized == 0
     assert db.processed_ids() == set()
@@ -244,7 +247,7 @@ def test_email_sent_with_summaries(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     _seed_channel(db, recipients=["me@example.com"])
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     captured: dict[str, object] = {}
@@ -254,7 +257,7 @@ def test_email_sent_with_summaries(tmp_path, monkeypatch):
 
     monkeypatch.setattr(notifications, "send_email", fake_send)
 
-    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     assert captured["recipients"] == ["me@example.com"]
     assert "A summary" in captured["html"]  # type: ignore[operator]
@@ -265,13 +268,13 @@ def test_no_email_when_channel_has_no_recipients(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     _seed_channel(db, recipients=[])  # summarized, but nobody to email
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     sends: list[dict] = []
     monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
 
-    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    result = _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     assert result.summarized == 1
     assert sends == []
@@ -288,13 +291,13 @@ def test_digest_grouped_per_channel(tmp_path, monkeypatch):
     monkeypatch.setattr(
         transcripts, "fetch_transcript", lambda info, vid, langs: _transcript()
     )
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     sends: list[dict] = []
     monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
 
-    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     # One digest per channel, each to its own recipients.
     assert len(sends) == 2
@@ -306,12 +309,12 @@ def _capture_send(tmp_path, monkeypatch, *, videos, text="A summary") -> list[di
     db = Database(tmp_path / "v.db")
     _seed_channel(db, recipients=["me@example.com"])
     _patch_youtube(monkeypatch, videos)
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     sends: list[dict] = []
     monkeypatch.setattr(notifications, "send_email", lambda **kw: sends.append(kw))
-    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1, text), JobRegistry()).run_cycle()
+    _build(cfg, db, FakeSummarizer(0.1, 0.1, text)).run_cycle()
     return sends
 
 
@@ -367,8 +370,8 @@ def test_published_date_is_human_readable(tmp_path, monkeypatch):
 
 
 def _monitor(tmp_path, schedule: str) -> ChannelMonitor:
-    cfg = _make_config(tmp_path / "v.db", schedule=schedule)
-    return ChannelMonitor(cfg, Database(tmp_path / "v.db"), FakeSummarizer(0.1, 0.1), JobRegistry())
+    cfg = _make_config(schedule=schedule)
+    return _build(cfg, Database(tmp_path / "v.db"), FakeSummarizer(0.1, 0.1))
 
 
 @pytest.mark.parametrize(
@@ -406,13 +409,13 @@ def test_no_email_when_nothing_new(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
     _seed_channel(db, recipients=["me@example.com"])
     _patch_youtube(monkeypatch, [])  # no videos
-    cfg = _make_config(tmp_path / "v.db")
+    cfg = _make_config()
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     calls = []
     monkeypatch.setattr(notifications, "send_email", lambda **kw: calls.append(kw))
 
-    result = ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    result = _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     assert result.summarized == 0
     assert calls == []
@@ -423,12 +426,12 @@ def test_prompt_with_stance_labels_extracts_and_saves_mentions(tmp_path, monkeyp
     _add_prompt(db, "crypto", entity_kind="coin", stance_labels=["bullish", "bearish"])
     db.add_channel("@chan", "Chan", "crypto")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     summarizer = FakeSummarizer(
         0.1, 0.1, mentions=[Mention("BTC", "bullish", "high", "why", "quote", 12)]
     )
 
-    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+    _build(cfg, db, summarizer).run_cycle()
 
     extraction = summarizer.extractions[0]
     assert extraction is not None
@@ -445,10 +448,10 @@ def test_prompt_without_stance_labels_does_not_extract(tmp_path, monkeypatch):
     _add_prompt(db, "plain")
     db.add_channel("@chan", "Chan", "plain")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     summarizer = FakeSummarizer(0.1, 0.1)
 
-    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+    _build(cfg, db, summarizer).run_cycle()
 
     assert summarizer.extractions == [None]
     assert db.list_mentions() == []
@@ -456,17 +459,19 @@ def test_prompt_without_stance_labels_does_not_extract(tmp_path, monkeypatch):
 
 def test_prompt_settings_drive_the_request_and_the_budget_check(tmp_path, monkeypatch):
     db = Database(tmp_path / "v.db")
-    _add_prompt(db, "deep", model="claude-deep", effort="high", max_output_tokens=32_000)
+    _add_prompt(db, "deep", model="sonnet", effort="high", max_output_tokens=32_000)
     db.add_channel("@chan", "Chan", "deep")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db")
+    cfg = _make_config()
     summarizer = FakeSummarizer(0.1, 0.1)
 
-    ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+    _build(cfg, db, summarizer).run_cycle()
 
-    assert summarizer.settings == [ModelSettings("claude-deep", "high", 32_000)]
+    assert summarizer.settings == [
+        ModelSettings("claude-sonnet-5-5", "high", 32_000, DEFAULT_PRICING["sonnet"])
+    ]
     assert summarizer.worst_case_tokens == [32_000]
-    assert db.get_summary("v0")["model"] == "claude-deep"
+    assert db.get_summary("v0")["model"] == "claude-sonnet-5-5"
 
 
 def test_summary_is_saved_with_its_run_stats(tmp_path, monkeypatch):
@@ -474,9 +479,9 @@ def test_summary_is_saved_with_its_run_stats(tmp_path, monkeypatch):
     _add_prompt(db, "deep", effort="high", max_output_tokens=32_000)
     db.add_channel("@chan", "Chan", "deep")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db")
+    cfg = _make_config()
 
-    ChannelMonitor(cfg, db, FakeSummarizer(0.1, 0.1), JobRegistry()).run_cycle()
+    _build(cfg, db, FakeSummarizer(0.1, 0.1)).run_cycle()
 
     row = db.get_summary("v0")
     assert (row["effort"], row["max_output_tokens"], row["estimated_output_tokens"]) == (
@@ -496,10 +501,64 @@ def test_prompt_without_model_or_effort_is_skipped(tmp_path, monkeypatch):
     db.add_prompt("legacy", "sys", 2000)
     db.add_channel("@chan", "Chan", "legacy")
     _patch_youtube(monkeypatch, [_video("v0", None)])
-    cfg = _make_config(tmp_path / "v.db", daily_budget_usd=0.0)
+    cfg = _make_config(daily_budget_usd=0.0)
     summarizer = FakeSummarizer(0.1, 0.1)
 
-    result = ChannelMonitor(cfg, db, summarizer, JobRegistry()).run_cycle()
+    result = _build(cfg, db, summarizer).run_cycle()
 
     assert result.summarized == 0
     assert summarizer.summarize_calls == 0
+
+
+def test_a_model_without_effort_runs_without_one(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    _add_prompt(db, "quick", model="haiku", effort=None)
+    db.add_channel("@chan", "Chan", "quick")
+    _patch_youtube(monkeypatch, [_video("v0", None)])
+    summarizer = FakeSummarizer(0.1, 0.1)
+
+    _build(_make_config(), db, summarizer).run_cycle()
+
+    assert summarizer.settings == [
+        ModelSettings("claude-haiku-4-5", None, 4096, DEFAULT_PRICING["haiku"])
+    ]
+    assert db.get_summary("v0")["effort"] is None
+
+
+def test_a_cycle_uses_the_settings_saved_since_the_last_one(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    _seed_channel(db)
+    _patch_youtube(monkeypatch, [_video("v0", None), _video("v1", None)])
+    store = SettingsStore(db, _make_config(daily_budget_usd=0.60))
+    monitor = ChannelMonitor(
+        store, db, FakeSummarizer(0.60, 0.50), JobRegistry(), ModelCatalog(lambda: [])
+    )
+
+    first = monitor.run_cycle()
+    store.replace(_make_config(daily_budget_usd=100.0))
+    second = monitor.run_cycle()
+
+    assert (first.summarized, first.budget_hit) == (1, True)
+    assert (second.summarized, second.budget_hit) == (1, False)
+
+
+def test_running_monitor_follows_the_enabled_setting(tmp_path):
+    db = Database(tmp_path / "v.db")
+    store = SettingsStore(db, _make_config(enabled=False))
+    monitor = ChannelMonitor(
+        store, db, FakeSummarizer(0.1, 0.1), JobRegistry(), ModelCatalog(lambda: [])
+    )
+
+    before_start = monitor.next_run_at
+    monitor.start()
+    try:
+        while_disabled = monitor.next_run_at
+        store.replace(_make_config(schedule="0 8 * * *"))
+        monitor.refresh()
+        while_enabled = monitor.next_run_at
+    finally:
+        monitor.stop()
+
+    assert before_start is None and while_disabled is None
+    assert while_enabled is not None and (while_enabled.hour, while_enabled.minute) == (8, 0)
+    assert monitor.next_run_at is None

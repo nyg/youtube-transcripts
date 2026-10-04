@@ -9,6 +9,7 @@ import pytest
 from app.estimates import PreparedEstimate, PreparedVideo
 from app.jobs import JobConflictError, JobRegistry
 from yt_summarizer.claude_client import CostEstimate, ModelSettings, SummaryResult
+from yt_summarizer.config import ModelPricing
 from yt_summarizer.database import Database
 from yt_summarizer.transcripts import Transcript
 from yt_summarizer.youtube_client import Video
@@ -20,7 +21,7 @@ def _empty_estimate() -> PreparedEstimate:
         channel_id=1,
         prompt_name="p",
         prompt_text="t",
-        settings=ModelSettings(model="m", effort="low", max_output_tokens=8192),
+        settings=ModelSettings("m", "low", 8192, ModelPricing(1.0, 5.0)),
         extraction=None,
         items={},
     )
@@ -65,7 +66,7 @@ def test_job_saves_the_summary_with_its_run_stats(tmp_path):
         channel_id=1,
         prompt_name="p",
         prompt_text="t",
-        settings=ModelSettings(model="m", effort="xhigh", max_output_tokens=500),
+        settings=ModelSettings("m", "xhigh", 500, ModelPricing(1.0, 5.0)),
         extraction=None,
         items={
             "v0": PreparedVideo(

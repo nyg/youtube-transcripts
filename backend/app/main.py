@@ -15,8 +15,9 @@ from fastapi.responses import JSONResponse
 
 from yt_summarizer import paths, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.config import load_config
+from yt_summarizer.config import read_config_file
 from yt_summarizer.database import Database
+from yt_summarizer.models import FAMILIES, ModelCatalog, family_of
 
 from .estimates import EstimateStore
 from .jobs import JobRegistry
@@ -31,8 +32,10 @@ from .routers import (
     prompts,
     questions,
     search,
+    settings,
     summaries,
 )
+from .settings import SettingsStore, load_settings
 
 _LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -100,32 +103,49 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
         )
 
 
+def _adopt_model_families(db: Database) -> None:
+    """Prompts used to store a model id; they now store its family."""
+    for prompt in db.list_prompts():
+        model = prompt["model"]
+        if not model or model in FAMILIES:
+            continue
+        family = family_of(model)
+        if family is None:
+            log.warning("Prompt %r uses the unknown model %r — choose one", prompt["name"], model)
+            continue
+        db.update_prompt(prompt["id"], model=family)
+        log.info("Prompt %r now uses the latest %s model (was %s)", prompt["name"], family, model)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config_file = paths.ensure_config()
     log.info("Loading config from %s", config_file)
-    cfg = load_config(config_file)
+    file_config = read_config_file(config_file)
+    database = paths.resolve_database_path(file_config.get("database"))
+    log.info("Using database at %s", database)
+    db = Database(database)
+    cfg = load_settings(db, file_config)
     youtube_client.configure(
         request_interval=cfg.youtube_request_interval,
         cookiefile=cfg.cookies_file,
     )
-    log.info("Using database at %s", cfg.database)
-    db = Database(cfg.database)
     _bootstrap_prompts(db, config_file)
+    _adopt_model_families(db)
     indexed = db.backfill_chunks()
     if indexed:
         log.info("Indexed %d stored summar(ies) for search", indexed)
-    app.state.config = cfg
+    app.state.settings = SettingsStore(db, cfg)
     app.state.db = db
-    app.state.summarizer = ClaudeSummarizer(cfg.pricing)
+    app.state.summarizer = ClaudeSummarizer()
+    app.state.catalog = ModelCatalog(app.state.summarizer.list_models)
     app.state.estimates = EstimateStore()
     app.state.questions = EstimateStore()
     app.state.jobs = JobRegistry()
-    app.state.monitor = ChannelMonitor(cfg, db, app.state.summarizer, app.state.jobs)
-    if cfg.monitor.enabled:
-        app.state.monitor.start()
-    else:
-        log.info("Channel monitor disabled (set monitoring.enabled in config.yaml)")
+    app.state.monitor = ChannelMonitor(
+        app.state.settings, db, app.state.summarizer, app.state.jobs, app.state.catalog
+    )
+    app.state.monitor.start()
     try:
         yield
     finally:
@@ -147,6 +167,7 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
 
 for router_module in (
     meta,
+    settings,
     channels,
     prompts,
     estimates,

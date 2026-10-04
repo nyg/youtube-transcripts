@@ -5,8 +5,8 @@ export interface Prompt {
   name: string
   text: string
   estimated_output_tokens: number
-  model: string | null // null until chosen: the prompt cannot run without it
-  effort: string | null
+  model: string | null // a model family; null until chosen: the prompt cannot run without it
+  effort: string | null // null also when the model takes no effort level
   max_output_tokens: number // hard cap on thinking plus response
   created_at: string
   entity_kind: string | null // what the prompt extracts (coin, stock, product…)
@@ -41,7 +41,7 @@ export interface Source {
 export interface QuestionEstimate {
   estimate_id: string
   model: string
-  effort: string
+  effort: string | null
   question: string
   mention_count: number
   summary_count: number
@@ -132,7 +132,7 @@ export interface EstimateItem {
 export interface Estimate {
   estimate_id: string
   model: string
-  effort: string
+  effort: string | null
   prompt_name: string
   items: EstimateItem[]
   total_input_tokens: number
@@ -185,9 +185,39 @@ export interface SummaryDetail extends Summary {
   transcript: string
 }
 
+export interface ClaudeModel {
+  family: string // what a prompt or a question chooses
+  id: string // the newest model of that family
+  name: string
+  efforts: string[] // empty when the model takes no effort level
+  price_confirmed: boolean // false once the family moved to a model its price was not saved for
+}
+
+export interface Settings {
+  max_videos_fetch: number
+  transcript_languages: string[]
+  youtube_request_interval: number
+  cookies_file: string | null
+  pricing: Record<string, { input: number; output: number }> // USD per 1M tokens, by model family
+  monitoring: {
+    enabled: boolean
+    schedule: string // cron expression, evaluated in the server's local time
+    run_on_start: boolean
+    max_videos_check: number
+    max_age_hours: number
+    daily_budget_usd: number
+    resend_from: string
+    subject_prefix: string
+  }
+  ask: {
+    max_context_tokens: number
+    estimated_output_tokens: number
+    max_output_tokens: number
+  }
+}
+
 export interface Meta {
-  models: string[]
-  efforts: string[]
+  models: ClaudeModel[]
   max_videos_fetch: number
   monitoring_enabled: boolean
   monitor_schedule: string

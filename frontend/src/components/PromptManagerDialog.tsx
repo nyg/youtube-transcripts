@@ -2,7 +2,13 @@ import { Loader2, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { useAddPrompt, useDeletePrompt, usePrompts, useUpdatePrompt } from "@/api/queries"
+import {
+  useAddPrompt,
+  useDeletePrompt,
+  useModelChoice,
+  usePrompts,
+  useUpdatePrompt,
+} from "@/api/queries"
 import type { Prompt } from "@/api/types"
 import { EffortSelect, ModelSelect } from "@/components/ModelSettingsSelects"
 import { Button } from "@/components/ui/button"
@@ -34,12 +40,12 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_OUTPUT_TOKENS)
   const [entityKind, setEntityKind] = useState("")
   const [labels, setLabels] = useState("")
+  const choice = useModelChoice(model, effort)
 
   const canAdd =
     !!name.trim() &&
     !!text.trim() &&
-    !!model &&
-    !!effort &&
+    choice.complete &&
     isTokenCount(tokens) &&
     isTokenCount(maxTokens)
 
@@ -51,7 +57,7 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
         text: text.trim(),
         estimatedOutputTokens: parseInt(tokens, 10),
         model,
-        effort,
+        effort: choice.needsEffort ? effort : undefined,
         maxOutputTokens: parseInt(maxTokens, 10),
         entityKind: entityKind.trim(),
         stanceLabels: splitLabels(labels),
@@ -80,8 +86,9 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
           <DialogTitle>Manage prompts</DialogTitle>
           <DialogDescription>
             A prompt is the instruction sent to Claude to summarize a video.
-            Channels each choose one. Every prompt runs on the model and effort
-            you choose for it. “Est. output” is the assumed output length used
+            Channels each choose one. Every prompt runs on the newest model of
+            the family you choose for it, at the effort you choose when that
+            model takes one. “Est. output” is the assumed output length used
             for cost estimates; “Max output” is the hard cap on thinking plus
             response. Give a prompt an entity kind and stance labels to also
             extract mentions (entity, stance, quote) into the Mentions tab;
@@ -105,6 +112,7 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
             />
             <EffortSelect
               label="Effort for the new prompt"
+              model={model}
               value={effort}
               onChange={setEffort}
               disabled={addPrompt.isPending}
@@ -223,6 +231,8 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
   const [maxTokens, setMaxTokens] = useState(String(prompt.max_output_tokens))
   const [entityKind, setEntityKind] = useState(prompt.entity_kind ?? "")
   const [labels, setLabels] = useState(prompt.stance_labels.join(", "))
+  const choice = useModelChoice(prompt.model, prompt.effort)
+  const cannotRun = !choice.loading && !choice.complete
 
   useEffect(() => setText(prompt.text), [prompt.text])
   useEffect(() => setEntityKind(prompt.entity_kind ?? ""), [prompt.entity_kind])
@@ -323,13 +333,14 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
           label={`Model for ${prompt.name}`}
           value={prompt.model ?? ""}
           onChange={(model) => update({ model })}
-          invalid={!prompt.model}
+          invalid={cannotRun && !choice.model}
         />
         <EffortSelect
           label={`Effort for ${prompt.name}`}
+          model={prompt.model ?? ""}
           value={prompt.effort ?? ""}
           onChange={(effort) => update({ effort })}
-          invalid={!prompt.effort}
+          invalid={cannotRun && !!choice.model}
         />
         <TokenField
           id={`tokens-${prompt.id}`}
@@ -346,9 +357,10 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
           onCommit={commitMaxTokens}
         />
       </div>
-      {(!prompt.model || !prompt.effort) && (
+      {cannotRun && (
         <p className="text-destructive text-xs">
-          Choose a model and an effort — this prompt cannot run until both are set.
+          Choose a model, and an effort if the model takes one — this prompt cannot run
+          until then.
         </p>
       )}
       <div className="flex flex-wrap gap-2">

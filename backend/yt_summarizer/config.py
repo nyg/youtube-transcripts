@@ -1,23 +1,34 @@
-"""Configuration loading: .env for secrets, config.yaml for everything else."""
+"""Settings, and the config.yaml that says where the database holding them lives."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 from croniter import croniter
 from dotenv import load_dotenv
 
-from . import paths
+from .models import BUILT_IN, FAMILIES, family_of
 
 # Top of every hour, in the server's local time.
 DEFAULT_SCHEDULE = "0 * * * *"
 DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
+_LEGACY_KEYS = (
+    "max_videos_fetch",
+    "transcript_languages",
+    "youtube_request_interval",
+    "cookies_file",
+    "monitoring",
+    "ask",
+)
+
 
 class ConfigError(Exception):
-    """Raised when the configuration file is missing or invalid."""
+    """Raised when the configuration file or a setting is missing or invalid."""
 
 
 @dataclass(frozen=True)
@@ -26,6 +37,15 @@ class ModelPricing:
 
     input_per_mtok: float
     output_per_mtok: float
+
+
+# Prices of the BUILT_IN models; keep both in step.
+DEFAULT_PRICING: dict[str, ModelPricing] = {
+    "fable": ModelPricing(10.0, 50.0),
+    "opus": ModelPricing(4.0, 20.0),
+    "sonnet": ModelPricing(2.0, 10.0),
+    "haiku": ModelPricing(1.0, 5.0),
+}
 
 
 @dataclass(frozen=True)
@@ -52,18 +72,20 @@ class AskConfig:
 
 
 @dataclass(frozen=True)
-class Config:
+class Settings:
     max_videos_fetch: int
     transcript_languages: tuple[str, ...]
     youtube_request_interval: float
     cookies_file: Path | None
-    pricing: dict[str, ModelPricing]
-    database: Path
+    pricing: dict[str, ModelPricing]  # keyed by model family
+    # The model each family's price was last saved for; a family that has moved
+    # on to a newer model is flagged so its price gets checked.
+    priced_models: dict[str, str]
     monitor: MonitorConfig
     ask: AskConfig
 
 
-def load_config(path: Path) -> Config:
+def read_config_file(path: Path) -> dict:
     # Secrets live in a .env next to the config file; also fall back to the
     # default search (CWD and parents) so an existing backend/.env keeps working.
     load_dotenv(path.parent / ".env")
@@ -75,33 +97,109 @@ def load_config(path: Path) -> Config:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} does not contain a YAML mapping")
+    return raw
 
-    pricing: dict[str, ModelPricing] = {}
-    for model_id, entry in (raw.get("pricing") or {}).items():
+
+def legacy_settings(file_config: Mapping[str, Any]) -> dict:
+    settings = {key: file_config[key] for key in _LEGACY_KEYS if file_config.get(key) is not None}
+    pricing = file_config.get("pricing")
+    if isinstance(pricing, dict):
+        # config.yaml priced model ids; only the price of a family's current model carries over.
+        settings["pricing"] = {
+            family: entry
+            for model_id, entry in pricing.items()
+            if (family := family_of(str(model_id))) and BUILT_IN[family].id == str(model_id)
+        }
+    return settings
+
+
+def parse_settings(raw: Mapping[str, Any]) -> Settings:
+    try:
+        settings = Settings(
+            max_videos_fetch=int(raw.get("max_videos_fetch", 25)),
+            transcript_languages=tuple(
+                str(lang).strip()
+                for lang in raw.get("transcript_languages") or ["en"]
+                if str(lang).strip()
+            )
+            or ("en",),
+            youtube_request_interval=float(raw.get("youtube_request_interval", 2.0)),
+            cookies_file=(
+                Path(str(raw["cookies_file"])).expanduser() if raw.get("cookies_file") else None
+            ),
+            pricing=_parse_pricing(raw.get("pricing") or {}),
+            priced_models=_parse_priced_models(raw.get("priced_models") or {}),
+            monitor=_parse_monitor(raw.get("monitoring") or {}),
+            ask=_parse_ask(raw.get("ask") or {}),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"Invalid setting: {exc}") from exc
+    if settings.max_videos_fetch < 1:
+        raise ConfigError("max_videos_fetch must be at least 1")
+    if settings.youtube_request_interval < 0:
+        raise ConfigError("youtube_request_interval cannot be negative")
+    return settings
+
+
+def settings_to_raw(settings: Settings) -> dict:
+    monitor = settings.monitor
+    ask = settings.ask
+    return {
+        "max_videos_fetch": settings.max_videos_fetch,
+        "transcript_languages": list(settings.transcript_languages),
+        "youtube_request_interval": settings.youtube_request_interval,
+        "cookies_file": str(settings.cookies_file) if settings.cookies_file else None,
+        "pricing": {
+            family: {"input": price.input_per_mtok, "output": price.output_per_mtok}
+            for family, price in settings.pricing.items()
+        },
+        "priced_models": dict(settings.priced_models),
+        "monitoring": {
+            "enabled": monitor.enabled,
+            "schedule": monitor.schedule,
+            "run_on_start": monitor.run_on_start,
+            "max_videos_check": monitor.max_videos_check,
+            "max_age_hours": monitor.max_age_hours,
+            "daily_budget_usd": monitor.daily_budget_usd,
+            "resend_from": monitor.resend_from,
+            "subject_prefix": monitor.subject_prefix,
+        },
+        "ask": {
+            "max_context_tokens": ask.max_context_tokens,
+            "estimated_output_tokens": ask.estimated_output_tokens,
+            "max_output_tokens": ask.max_output_tokens,
+        },
+    }
+
+
+def _parse_pricing(raw: object) -> dict[str, ModelPricing]:
+    if not isinstance(raw, dict):
+        raise ConfigError("'pricing' must be a mapping")
+    pricing = dict(DEFAULT_PRICING)
+    for family in FAMILIES:
+        entry = raw.get(family)
+        if entry is None:
+            continue
         try:
-            pricing[str(model_id)] = ModelPricing(
+            price = ModelPricing(
                 input_per_mtok=float(entry["input"]),
                 output_per_mtok=float(entry["output"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigError(
-                f"Invalid pricing entry for {model_id!r}: expected "
+                f"Invalid pricing entry for {family!r}: expected "
                 "'{input: <$/1M>, output: <$/1M>}'"
             ) from exc
+        if price.input_per_mtok < 0 or price.output_per_mtok < 0:
+            raise ConfigError(f"The price of {family!r} cannot be negative")
+        pricing[family] = price
+    return pricing
 
-    monitor = _parse_monitor(raw.get("monitoring") if raw.get("monitoring") is not None else {})
-    ask = _parse_ask(raw.get("ask") if raw.get("ask") is not None else {})
 
-    return Config(
-        max_videos_fetch=int(raw.get("max_videos_fetch", 25)),
-        transcript_languages=tuple(str(lang) for lang in raw.get("transcript_languages") or ["en"]),
-        youtube_request_interval=float(raw.get("youtube_request_interval", 2.0)),
-        cookies_file=Path(str(raw["cookies_file"])).expanduser() if raw.get("cookies_file") else None,
-        pricing=pricing,
-        database=paths.resolve_database_path(raw.get("database")),
-        monitor=monitor,
-        ask=ask,
-    )
+def _parse_priced_models(raw: object) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise ConfigError("'priced_models' must be a mapping")
+    return {family: str(raw.get(family) or BUILT_IN[family].alias) for family in FAMILIES}
 
 
 def _parse_ask(raw: object) -> AskConfig:
@@ -149,4 +247,10 @@ def _parse_monitor(raw: object) -> MonitorConfig:
     )
     if monitor.enabled and not monitor.resend_from:
         raise ConfigError("monitoring.resend_from is required when monitoring is enabled")
+    if monitor.max_videos_check < 1:
+        raise ConfigError("monitoring.max_videos_check must be at least 1")
+    if monitor.max_age_hours < 0:
+        raise ConfigError("monitoring.max_age_hours cannot be negative")
+    if monitor.daily_budget_usd < 0:
+        raise ConfigError("monitoring.daily_budget_usd cannot be negative")
     return monitor
