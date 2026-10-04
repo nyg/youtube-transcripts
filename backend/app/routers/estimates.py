@@ -25,7 +25,7 @@ _SKIPPED_DETAIL = "Skipped — YouTube is rate limiting this IP; try again in a 
 @router.post("", response_model=EstimateOut)
 def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
     state = request.app.state
-    cfg = state.config
+    cfg = state.settings.current
 
     channel = state.db.get_channel(body.channel_id)
     if channel is None:
@@ -40,7 +40,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
             "choose a prompt for it in Manage channels.",
         )
     prompt_name = prompt["name"]
-    settings = settings_for(prompt)
+    settings = settings_for(prompt, state.catalog, cfg.pricing)
     if settings is None:
         raise HTTPException(
             status_code=422,
@@ -152,12 +152,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
     )
 
     total_input = sum(item.estimate.input_tokens for item in prepared.values())
-    total_cost: float | None = 0.0
-    for item in prepared.values():
-        if item.estimate.cost_usd is None:
-            total_cost = None
-            break
-        total_cost += item.estimate.cost_usd
+    total_cost = sum(item.estimate.cost_usd for item in prepared.values())
 
     return EstimateOut(
         estimate_id=estimate_id,

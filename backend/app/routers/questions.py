@@ -13,9 +13,9 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from yt_summarizer import analysis
-from yt_summarizer.claude_client import ModelSettings
 
 from ..estimates import PreparedQuestion
+from ..prompts import model_settings
 from ..schemas import (
     QuestionAsk,
     QuestionEstimateOut,
@@ -37,12 +37,14 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Ask a question first")
-    if body.model not in state.config.pricing:
+    cfg = state.settings.current
+    settings = model_settings(
+        state.catalog, cfg.pricing, body.model, body.effort, cfg.ask.max_output_tokens
+    )
+    if settings is None:
         raise HTTPException(
-            status_code=422,
-            detail=f"Unknown model {body.model!r} — add it under 'pricing' in config.yaml",
+            status_code=422, detail="Choose a model, and an effort if the model takes one"
         )
-    settings = ModelSettings(body.model, body.effort, state.config.ask.max_output_tokens)
 
     context = analysis.build_context(
         state.db,
@@ -50,7 +52,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
         channel_id=body.channel_id,
         since=body.since,
         until=body.until,
-        max_tokens=state.config.ask.max_context_tokens,
+        max_tokens=cfg.ask.max_context_tokens,
     )
     if not context.sources:
         raise HTTPException(
@@ -59,7 +61,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
         )
 
     estimate = state.summarizer.estimate_answer(
-        settings, question, context.text, state.config.ask.estimated_output_tokens
+        settings, question, context.text, cfg.ask.estimated_output_tokens
     )
     estimate_id = uuid.uuid4().hex
     state.questions.add(

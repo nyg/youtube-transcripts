@@ -7,8 +7,6 @@ involved.
 
 from __future__ import annotations
 
-import types
-
 import pytest
 from types import SimpleNamespace
 
@@ -16,20 +14,29 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers import estimates, mentions, meta, prompts, questions, search, summaries
-from yt_summarizer.config import ModelPricing
-from yt_summarizer.claude_client import ModelSettings
+from app.routers import settings as settings_router
+from app.settings import SettingsStore
+from yt_summarizer import youtube_client
+from yt_summarizer.config import DEFAULT_PRICING, parse_settings
+from yt_summarizer.claude_client import ModelSettings, SummarizerError
 from yt_summarizer.database import Database
 from yt_summarizer.mentions import Mention
+from yt_summarizer.models import EFFORT_LEVELS, ClaudeModel, ModelCatalog
 
 
-PRICING = {"claude-test": ModelPricing(input_per_mtok=4.0, output_per_mtok=20.0)}
-SETTINGS = {"model": "claude-test", "effort": "low"}
+SETTINGS = {"model": "opus", "effort": "low"}
+
+
+def _app(db: Database, **settings) -> FastAPI:
+    app = FastAPI()
+    app.state.db = db
+    app.state.settings = SettingsStore(db, parse_settings(settings))
+    app.state.catalog = ModelCatalog(lambda: [])
+    return app
 
 
 def _prompts_client(db: Database) -> TestClient:
-    app = FastAPI()
-    app.state.db = db
-    app.state.config = SimpleNamespace(pricing=PRICING)
+    app = _app(db)
     app.include_router(prompts.router)
     return TestClient(app)
 
@@ -45,7 +52,7 @@ def test_prompts_crud_api(tmp_path):
     assert r.status_code == 201
     pid = r.json()["id"]
     assert r.json()["estimated_output_tokens"] == 1500
-    assert (r.json()["model"], r.json()["effort"]) == ("claude-test", "low")
+    assert (r.json()["model"], r.json()["effort"]) == ("opus", "low")
     assert r.json()["max_output_tokens"] == 8192
 
     assert [p["name"] for p in client.get("/api/prompts").json()] == ["sum"]
@@ -77,24 +84,37 @@ def test_add_prompt_requires_a_model_and_an_effort(tmp_path):
     base = {"name": "n", "text": "t"}
 
     assert client.post("/api/prompts", json={**base, "effort": "low"}).status_code == 422
-    assert client.post("/api/prompts", json={**base, "model": "claude-test"}).status_code == 422
+    assert client.post("/api/prompts", json={**base, "model": "opus"}).status_code == 422
     unknown_effort = client.post("/api/prompts", json={**base, **SETTINGS, "effort": "extreme"})
     assert unknown_effort.status_code == 422
 
 
-def test_prompt_rejects_a_model_without_pricing(tmp_path):
+def test_prompt_on_a_model_without_effort_needs_none(tmp_path):
+    db = Database(tmp_path / "v.db")
+    client = _prompts_client(db)
+
+    bare = client.post("/api/prompts", json={"name": "bare", "text": "t", "model": "haiku"})
+    ignored = client.post(
+        "/api/prompts", json={"name": "ignored", "text": "t", "model": "haiku", "effort": "max"}
+    )
+
+    assert bare.status_code == 201 and bare.json()["effort"] is None
+    assert ignored.status_code == 201 and ignored.json()["effort"] is None
+
+
+def test_prompt_rejects_an_unknown_model_family(tmp_path):
     db = Database(tmp_path / "v.db")
     client = _prompts_client(db)
 
     created = client.post("/api/prompts", json={"name": "n", "text": "t", **SETTINGS})
     unknown = client.post(
-        "/api/prompts", json={"name": "other", "text": "t", **SETTINGS, "model": "claude-nope"}
+        "/api/prompts", json={"name": "other", "text": "t", **SETTINGS, "model": "claude-opus-5-5"}
     )
-    patched = client.patch(f"/api/prompts/{created.json()['id']}", json={"model": "claude-nope"})
+    patched = client.patch(f"/api/prompts/{created.json()['id']}", json={"model": "gpt"})
 
-    assert unknown.status_code == 422 and "pricing" in unknown.json()["detail"]
+    assert unknown.status_code == 422 and "fable, opus, sonnet, haiku" in unknown.json()["detail"]
     assert patched.status_code == 422
-    assert db.get_prompt_by_name("n")["model"] == "claude-test"
+    assert db.get_prompt_by_name("n")["model"] == "opus"
 
 
 def test_patch_sets_model_effort_and_cap_on_an_older_prompt(tmp_path):
@@ -105,13 +125,13 @@ def test_patch_sets_model_effort_and_cap_on_an_older_prompt(tmp_path):
     listed = client.get("/api/prompts").json()[0]
     r = client.patch(
         f"/api/prompts/{legacy['id']}",
-        json={"model": "claude-test", "effort": "xhigh", "max_output_tokens": 64_000},
+        json={"model": "sonnet", "effort": "xhigh", "max_output_tokens": 64_000},
     )
 
     assert (listed["model"], listed["effort"]) == (None, None)
     assert r.status_code == 200
     assert (r.json()["model"], r.json()["effort"], r.json()["max_output_tokens"]) == (
-        "claude-test",
+        "sonnet",
         "xhigh",
         64_000,
     )
@@ -130,10 +150,8 @@ def test_delete_prompt_blocked_when_in_use(tmp_path):
 
 
 def _estimates_client(db: Database) -> TestClient:
-    app = FastAPI()
-    app.state.db = db
+    app = _app(db)
     # The no-prompt / missing-channel guards return before touching these.
-    app.state.config = types.SimpleNamespace(transcript_languages=("en",))
     app.state.summarizer = None
     app.state.estimates = None
     app.include_router(estimates.router)
@@ -367,15 +385,8 @@ class _FakeAnswerer:
 
 
 def _questions_client(db: Database, summarizer: _FakeAnswerer) -> TestClient:
-    app = FastAPI()
-    app.state.db = db
+    app = _app(db, ask={"max_output_tokens": 6000})
     app.state.summarizer = summarizer
-    app.state.config = SimpleNamespace(
-        pricing=PRICING,
-        ask=SimpleNamespace(
-            max_context_tokens=100_000, estimated_output_tokens=1500, max_output_tokens=6000
-        ),
-    )
     from app.estimates import EstimateStore
 
     app.state.questions = EstimateStore()
@@ -397,14 +408,16 @@ def test_question_estimate_then_answer_is_stored(tmp_path):
     body = estimate.json()
     assert body["mention_count"] == 1 and body["summary_count"] == 1
     assert body["cost_usd"] == 0.25
-    assert (body["model"], body["effort"]) == ("claude-test", "low")
+    assert (body["model"], body["effort"]) == ("claude-opus-5-5", "low")
     assert "Cardano: bearish" in summarizer.contexts[0]
 
     answered = client.post("/api/questions", json={"estimate_id": body["estimate_id"]})
     assert answered.status_code == 200
     assert answered.json()["answer"] == "Cardano turned bearish [1]."
-    assert answered.json()["model"] == "claude-test"
-    assert summarizer.settings == [ModelSettings("claude-test", "low", 6000)] * 2
+    assert answered.json()["model"] == "claude-opus-5-5"
+    assert summarizer.settings == [
+        ModelSettings("claude-opus-5-5", "low", 6000, DEFAULT_PRICING["opus"])
+    ] * 2
     assert answered.json()["sources"][0]["kind"] == "mention"
 
     # The estimate is consumed, so re-approving it is a 410.
@@ -425,17 +438,22 @@ def test_question_estimate_422_without_sources(tmp_path):
     assert "Nothing to answer from" in r.json()["detail"]
 
 
-def test_question_estimate_requires_a_priced_model_and_an_effort(tmp_path):
-    client = _questions_client(Database(tmp_path / "v.db"), _FakeAnswerer())
+def test_question_estimate_requires_a_known_model_and_its_effort(tmp_path):
+    db = Database(tmp_path / "v.db")
+    _seed_mentions(db, "v0", "2026-09-09T10:00:00+00:00", ("Cardano", "bearish"))
+    client = _questions_client(db, _FakeAnswerer())
+    ask = {"question": "What about Cardano?"}
 
-    no_choice = client.post("/api/questions/estimate", json={"question": "anything?"})
-    unknown = client.post(
-        "/api/questions/estimate",
-        json={"question": "anything?", **SETTINGS, "model": "claude-nope"},
-    )
+    no_choice = client.post("/api/questions/estimate", json=ask)
+    unknown = client.post("/api/questions/estimate", json={**ask, **SETTINGS, "model": "gpt"})
+    no_effort = client.post("/api/questions/estimate", json={**ask, "model": "opus"})
+    effortless = client.post("/api/questions/estimate", json={**ask, "model": "haiku"})
 
     assert no_choice.status_code == 422
-    assert unknown.status_code == 422 and "pricing" in unknown.json()["detail"]
+    assert unknown.status_code == 422 and "Choose a model" in unknown.json()["detail"]
+    assert no_effort.status_code == 422
+    assert effortless.status_code == 200
+    assert (effortless.json()["model"], effortless.json()["effort"]) == ("claude-haiku-4-5", None)
 
 
 def test_question_cost_counts_toward_daily_spend(tmp_path):
@@ -452,18 +470,133 @@ def test_question_cost_counts_toward_daily_spend(tmp_path):
     assert db.spend_since("1970-01-01T00:00:00+00:00") == pytest.approx(before + 0.3)
 
 
-def test_meta_lists_the_priced_models_and_effort_levels(tmp_path):
-    app = FastAPI()
-    app.state.db = Database(tmp_path / "v.db")
+def _meta_client(db: Database, listed: list[ClaudeModel]) -> TestClient:
+    app = _app(db)
+    app.state.catalog = ModelCatalog(lambda: listed)
     app.state.monitor = SimpleNamespace(next_run_at=None)
-    app.state.config = SimpleNamespace(
-        pricing=PRICING,
-        max_videos_fetch=25,
-        monitor=SimpleNamespace(enabled=False, schedule="0 * * * *", daily_budget_usd=1.0),
-    )
+    app.include_router(meta.router)
+    return TestClient(app)
+
+
+def test_meta_lists_the_newest_model_of_each_family(tmp_path):
+    client = _meta_client(Database(tmp_path / "v.db"), [])
+
+    models = client.get("/api/meta").json()["models"]
+
+    assert [model["family"] for model in models] == ["fable", "opus", "sonnet", "haiku"]
+    assert models[1] == {
+        "family": "opus",
+        "id": "claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+        "price_confirmed": True,
+    }
+    assert models[3]["efforts"] == []
+
+
+def test_meta_flags_a_family_that_moved_to_a_model_its_price_was_not_saved_for(tmp_path):
+    newer = ClaudeModel("opus", "claude-opus-6", "Claude Opus 6", EFFORT_LEVELS)
+    client = _meta_client(Database(tmp_path / "v.db"), [newer])
+
+    models = {model["family"]: model for model in client.get("/api/meta").json()["models"]}
+
+    assert (models["opus"]["id"], models["opus"]["price_confirmed"]) == ("claude-opus-6", False)
+    assert models["sonnet"]["price_confirmed"] is True
+
+
+def test_refreshing_models_reports_why_it_failed(tmp_path):
+    def unreachable():
+        raise SummarizerError("Could not reach the Anthropic API — check your network")
+
+    app = _app(Database(tmp_path / "v.db"))
+    app.state.catalog = ModelCatalog(unreachable)
     app.include_router(meta.router)
 
-    body = TestClient(app).get("/api/meta").json()
+    with pytest.raises(SummarizerError, match="Could not reach"):
+        TestClient(app).post("/api/models/refresh")
 
-    assert body["models"] == ["claude-test"]
-    assert body["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+
+# --- settings ----------------------------------------------------------------
+
+
+class _FakeMonitor:
+    def __init__(self) -> None:
+        self.refreshed = 0
+
+    def refresh(self) -> None:
+        self.refreshed += 1
+
+
+def _settings_client(db: Database, listed: list[ClaudeModel] | None = None) -> TestClient:
+    app = _app(db)
+    app.state.catalog = ModelCatalog(lambda: listed or [])
+    app.state.monitor = _FakeMonitor()
+    app.include_router(settings_router.router)
+    return TestClient(app)
+
+
+def test_settings_start_from_the_defaults(tmp_path):
+    body = _settings_client(Database(tmp_path / "v.db")).get("/api/settings").json()
+
+    assert body["max_videos_fetch"] == 25
+    assert body["transcript_languages"] == ["en"]
+    assert body["cookies_file"] is None
+    assert body["pricing"]["opus"] == {"input": 4.0, "output": 20.0}
+    assert body["monitoring"]["enabled"] is False
+    assert body["ask"]["max_output_tokens"] == 8192
+    assert "priced_models" not in body
+
+
+def test_saved_settings_are_stored_and_applied(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    client = _settings_client(db)
+    configured: dict[str, object] = {}
+    monkeypatch.setattr(youtube_client, "configure", lambda **kwargs: configured.update(kwargs))
+    body = client.get("/api/settings").json()
+    body["max_videos_fetch"] = 40
+    body["youtube_request_interval"] = 3.5
+    body["pricing"]["opus"] = {"input": 6.0, "output": 30.0}
+    body["monitoring"].update(enabled=True, schedule="0 8 * * *", resend_from="me@example.com")
+
+    saved = client.put("/api/settings", json=body)
+
+    assert saved.status_code == 200 and saved.json() == body
+    assert client.get("/api/settings").json() == body
+    assert parse_settings(db.get_settings()).monitor.schedule == "0 8 * * *"
+    assert client.app.state.settings.current.pricing["opus"].output_per_mtok == 30.0
+    assert client.app.state.monitor.refreshed == 1
+    assert configured == {"request_interval": 3.5, "cookiefile": None}
+
+
+@pytest.mark.parametrize(
+    "section,field,value,message",
+    [
+        ("monitoring", "schedule", "every hour", "not a valid cron expression"),
+        ("monitoring", "enabled", True, "resend_from"),
+        ("monitoring", "max_videos_check", 0, "max_videos_check"),
+        ("ask", "max_context_tokens", 10, "max_context_tokens"),
+    ],
+)
+def test_invalid_settings_are_rejected_and_nothing_changes(
+    tmp_path, section, field, value, message
+):
+    db = Database(tmp_path / "v.db")
+    client = _settings_client(db)
+    body = client.get("/api/settings").json()
+    body[section][field] = value
+
+    rejected = client.put("/api/settings", json=body)
+
+    assert rejected.status_code == 422 and message in rejected.json()["detail"]
+    assert db.get_settings() == {}
+    assert client.app.state.monitor.refreshed == 0
+
+
+def test_saving_settings_confirms_the_price_of_the_current_models(tmp_path):
+    db = Database(tmp_path / "v.db")
+    newer = ClaudeModel("opus", "claude-opus-6-20270101", "Claude Opus 6", EFFORT_LEVELS)
+    client = _settings_client(db, [newer])
+
+    client.put("/api/settings", json=client.get("/api/settings").json())
+
+    assert client.app.state.settings.current.priced_models["opus"] == "claude-opus-6"

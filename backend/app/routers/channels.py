@@ -97,7 +97,7 @@ def list_videos(
     row = state.db.get_channel(channel_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Channel not found")
-    videos = youtube_client.list_recent_videos(row["input"], max or state.config.max_videos_fetch)
+    videos = youtube_client.list_recent_videos(row["input"], max or state.settings.current.max_videos_fetch)
     processed = state.db.processed_ids()
     # Already-processed videos have an exact publish date stored — prefer it over
     # the (possibly approximate) date from the listing.

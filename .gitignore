@@ -1,7 +1,7 @@
 # Secrets
 .env
 
-# Live config lives in ~/.config/yt-summarizer/; only the template is tracked.
+# Left behind by installs from before settings moved to the database.
 backend/config.yaml
 
 # Virtual environments

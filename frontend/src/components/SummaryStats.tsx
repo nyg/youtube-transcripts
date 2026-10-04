@@ -41,7 +41,8 @@ export function SummaryStats({ summary }: { summary: Summary }) {
   return (
     <dl className="bg-muted text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-md p-3 text-xs">
       <Stat label="Model">
-        {summary.model} · {summary.effort} effort
+        {summary.model}
+        {summary.effort && ` · ${summary.effort} effort`}
       </Stat>
       {input != null && <Stat label="Input">{count(input)} tokens</Stat>}
       {output != null && (

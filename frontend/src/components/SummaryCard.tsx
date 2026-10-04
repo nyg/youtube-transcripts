@@ -140,7 +140,7 @@ export function SummaryCard({ summary }: Props) {
           <Button variant="ghost" size="sm" onClick={() => setShowTranscript((v) => !v)}>
             {showTranscript ? "Hide transcript" : "Show transcript"}
           </Button>
-          {summary.effort != null && (
+          {summary.max_output_tokens != null && (
             <Button variant="ghost" size="sm" onClick={() => setShowStats((v) => !v)}>
               {showStats ? "Hide stats" : "Show stats"}
             </Button>

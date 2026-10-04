@@ -6,9 +6,11 @@ import { AskTab } from "@/components/AskTab"
 import { ChannelSelect } from "@/components/ChannelSelect"
 import { MentionsTab } from "@/components/MentionsTab"
 import { MonitorStatus } from "@/components/MonitorStatus"
+import { PriceNotice } from "@/components/PriceNotice"
 import { ProcessTab } from "@/components/ProcessTab"
 import { PromptManagerDialog } from "@/components/PromptManagerDialog"
 import { SearchTab } from "@/components/SearchTab"
+import { SettingsDialog } from "@/components/SettingsDialog"
 import { SummaryList } from "@/components/SummaryList"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -21,6 +23,7 @@ function App() {
   })
   const [manageOpen, setManageOpen] = useState(false)
   const [promptsOpen, setPromptsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Keep the selection valid as channels are added/removed.
   useEffect(() => {
@@ -53,8 +56,12 @@ function App() {
         <Button variant="outline" onClick={() => setManageOpen(true)}>
           Manage channels
         </Button>
-        <div className="w-full">
+        <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </Button>
+        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1">
           <MonitorStatus />
+          <PriceNotice onOpenSettings={() => setSettingsOpen(true)} />
         </div>
       </header>
 
@@ -94,6 +101,7 @@ function App() {
 
       <ChannelManagerDialog open={manageOpen} onOpenChange={setManageOpen} />
       <PromptManagerDialog open={promptsOpen} onOpenChange={setPromptsOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

@@ -6,17 +6,18 @@ Run from the backend/ directory:  uvicorn app.main:app --reload --port 8000
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from pathlib import Path
+from typing import Any
 
-import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from yt_summarizer import paths, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.config import load_config
+from yt_summarizer.config import load_secrets, read_legacy_config
 from yt_summarizer.database import Database
+from yt_summarizer.models import FAMILIES, ModelCatalog, family_of
 
 from .estimates import EstimateStore
 from .jobs import JobRegistry
@@ -31,8 +32,10 @@ from .routers import (
     prompts,
     questions,
     search,
+    settings,
     summaries,
 )
+from .settings import SettingsStore, load_settings
 
 _LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -64,7 +67,7 @@ _STARTER_PROMPT_TEXT = (
 )
 
 
-def _bootstrap_prompts(db: Database, config_file: Path) -> None:
+def _bootstrap_prompts(db: Database, raw: Mapping[str, Any]) -> None:
     """Seed the prompts table on first run.
 
     Prompts used to live in config.yaml. On the first start after that move, import
@@ -74,11 +77,7 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
     """
     if db.list_prompts():
         return
-    try:
-        raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        raw = {}
-    legacy = raw.get("prompts") if isinstance(raw, dict) else None
+    legacy = raw.get("prompts")
     if isinstance(legacy, dict) and legacy:
         est = int(raw.get("estimated_output_tokens", 2000))
         for name, text in legacy.items():
@@ -100,32 +99,54 @@ def _bootstrap_prompts(db: Database, config_file: Path) -> None:
         )
 
 
+def _adopt_model_families(db: Database) -> None:
+    """Prompts used to store a model id; they now store its family."""
+    for prompt in db.list_prompts():
+        model = prompt["model"]
+        if not model or model in FAMILIES:
+            continue
+        family = family_of(model)
+        if family is None:
+            log.warning("Prompt %r uses the unknown model %r — choose one", prompt["name"], model)
+            continue
+        db.update_prompt(prompt["id"], model=family)
+        log.info("Prompt %r now uses the latest %s model (was %s)", prompt["name"], family, model)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config_file = paths.ensure_config()
-    log.info("Loading config from %s", config_file)
-    cfg = load_config(config_file)
+    legacy_config = paths.legacy_config()
+    load_secrets(legacy_config)
+    file_config = read_legacy_config(legacy_config) if legacy_config else {}
+    database = paths.database_path()
+    log.info("Using database at %s", database)
+    db = Database(database)
+    cfg = load_settings(db, file_config)
     youtube_client.configure(
         request_interval=cfg.youtube_request_interval,
         cookiefile=cfg.cookies_file,
     )
-    log.info("Using database at %s", cfg.database)
-    db = Database(cfg.database)
-    _bootstrap_prompts(db, config_file)
+    _bootstrap_prompts(db, file_config)
+    _adopt_model_families(db)
+    if legacy_config:
+        log.info(
+            "%s is no longer needed: its settings are in the database. You can delete it.",
+            legacy_config,
+        )
     indexed = db.backfill_chunks()
     if indexed:
         log.info("Indexed %d stored summar(ies) for search", indexed)
-    app.state.config = cfg
+    app.state.settings = SettingsStore(db, cfg)
     app.state.db = db
-    app.state.summarizer = ClaudeSummarizer(cfg.pricing)
+    app.state.summarizer = ClaudeSummarizer()
+    app.state.catalog = ModelCatalog(app.state.summarizer.list_models)
     app.state.estimates = EstimateStore()
     app.state.questions = EstimateStore()
     app.state.jobs = JobRegistry()
-    app.state.monitor = ChannelMonitor(cfg, db, app.state.summarizer, app.state.jobs)
-    if cfg.monitor.enabled:
-        app.state.monitor.start()
-    else:
-        log.info("Channel monitor disabled (set monitoring.enabled in config.yaml)")
+    app.state.monitor = ChannelMonitor(
+        app.state.settings, db, app.state.summarizer, app.state.jobs, app.state.catalog
+    )
+    app.state.monitor.start()
     try:
         yield
     finally:
@@ -147,6 +168,7 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
 
 for router_module in (
     meta,
+    settings,
     channels,
     prompts,
     estimates,

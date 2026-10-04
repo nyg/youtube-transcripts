@@ -1,9 +1,9 @@
 """Prompt management — the summarization templates channels choose from.
 
 Prompts used to live in config.yaml; they are now a DB/UI-managed entity, each
-carrying its own model, effort, `max_output_tokens` and `estimated_output_tokens`.
-A channel references a prompt by name, so a prompt cannot be deleted while a
-channel still uses it.
+carrying its own model family, effort, `max_output_tokens` and
+`estimated_output_tokens`. A channel references a prompt by name, so a prompt
+cannot be deleted while a channel still uses it.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from __future__ import annotations
 import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
+
+from yt_summarizer.models import FAMILIES, ClaudeModel
 
 from ..prompts import stance_labels
 from ..schemas import MAX_STANCE_LABELS, PromptIn, PromptOut, PromptPatch
@@ -44,12 +46,14 @@ def _check_labels(labels: list[str] | None) -> None:
         raise HTTPException(status_code=422, detail="Stance labels must be unique")
 
 
-def _check_model(model: str | None, request: Request) -> None:
-    if model is not None and model not in request.app.state.config.pricing:
+def _resolve_model(family: str, request: Request) -> ClaudeModel:
+    model = request.app.state.catalog.resolve(family)
+    if model is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown model {model!r} — add it under 'pricing' in config.yaml",
+            detail=f"Unknown model {family!r} — choose one of: {', '.join(FAMILIES)}",
         )
+    return model
 
 
 @router.get("", response_model=list[PromptOut])
@@ -66,7 +70,9 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
     if not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
     _check_labels(body.stance_labels)
-    _check_model(body.model, request)
+    model = _resolve_model(body.model, request)
+    if model.efforts and body.effort not in model.efforts:
+        raise HTTPException(status_code=422, detail=f"Choose an effort for {model.name}")
     try:
         row = request.app.state.db.add_prompt(
             name,
@@ -75,7 +81,7 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
             entity_kind=(body.entity_kind or "").strip(),
             stance_labels=body.stance_labels,
             model=body.model,
-            effort=body.effort,
+            effort=body.effort if model.efforts else None,
             max_output_tokens=body.max_output_tokens,
         )
     except sqlite3.IntegrityError:
@@ -89,7 +95,8 @@ def update_prompt(prompt_id: int, body: PromptPatch, request: Request) -> Prompt
     if text is not None and not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
     _check_labels(body.stance_labels)
-    _check_model(body.model, request)
+    if body.model is not None:
+        _resolve_model(body.model, request)
     row = request.app.state.db.update_prompt(
         prompt_id,
         text=text,

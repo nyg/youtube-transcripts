@@ -14,7 +14,8 @@ a local web app.
   you explicitly approve
 - Watch per-video progress while summaries are generated, then browse them
   with rendered Markdown and stored transcripts
-- Choose the **model, effort and output cap per prompt**, and per question in the Ask tab — there is no global model
+- Choose the **model family (Fable, Opus, Sonnet or Haiku), effort and output cap per prompt**, and per question in the Ask tab — a family always runs on its newest model, so a new Claude model needs no configuration
+- **Settings in the UI**, stored in the database and applied without a restart — no config file to maintain
 - Give a prompt an **entity kind and stance labels** (coin + bullish/bearish,
   product + recommend/avoid, …) and every video also yields **structured
   mentions**: entity, stance, confidence, quote and timestamp. The Mentions tab
@@ -56,16 +57,13 @@ make install              # creates .venv, installs backend + frontend deps
 cp backend/.env.example backend/.env    # then put your ANTHROPIC_API_KEY in it
 ```
 
-On its first start the backend creates `~/.config/yt-summarizer/config.yaml`
-from the `backend/config.example.yaml` template (honouring `$XDG_CONFIG_HOME`)
-and logs where it put it. That copy is the live config — edit it there; the
-checkout is never written to and your settings never show up in `git status`.
-Channels and prompts are managed in the UI, not in the config file.
+There is no config file. Settings, channels and prompts are managed in the UI
+and stored in the database, which the backend creates on its first start at
+`~/.local/share/yt-summarizer/videos.db` (honouring `$XDG_DATA_HOME`); the
+checkout is never written to.
 
-Secrets go in a `.env` next to the config file
-(`~/.config/yt-summarizer/.env`); a `backend/.env` is still picked up as a
-fallback. `$YT_SUMMARIZER_CONFIG` points directly at a config file and
-overrides everything (no copy is made).
+Secrets go in `~/.config/yt-summarizer/.env` (honouring `$XDG_CONFIG_HOME`); a
+`backend/.env` is still picked up as a fallback.
 
 ## Running
 
@@ -100,39 +98,39 @@ checkout.
    actual cost per video is shown when finished.
 6. **Browse summaries** — the *Summaries* tab renders each summary's Markdown, with model/prompt/cost/token badges and the stored transcript on demand. "Show stats" splits the output into thinking and response tokens and shows how much of the output cap was used, the assumed output against the actual, and the duration — use it to tune the prompt's effort, max output and est. output.
 
-## Configuration (`~/.config/yt-summarizer/config.yaml`)
+## Settings
 
-Channels, prompts and digest recipients live in the database and are edited in
-the UI. The config file holds global settings only:
+Everything is edited in the UI and stored in the database: channels, prompts and digest recipients in their own dialogs, the global settings in "Settings". A save applies at once, without a restart.
 
-| Key | Purpose |
+| Setting | Purpose |
 | --- | --- |
-| `max_videos_fetch` | How many recent videos/lives to list |
-| `transcript_languages` | Preferred transcript languages, in order; falls back to the original-language auto captions |
-| `youtube_request_interval` | Minimum seconds between YouTube requests |
-| `cookies_file` | Optional Netscape-format cookies file for higher rate limits |
-| `pricing` | $/1M input & output tokens per model — used for cost math. Also the list of models you can choose in the UI, so only list models that accept an effort level |
-| `ask.max_context_tokens` / `estimated_output_tokens` / `max_output_tokens` | Ask tab: context ceiling, assumed answer length, and hard cap on thinking plus answer |
-| `monitoring.enabled` | Turn the background monitor on |
-| `monitoring.schedule` | 5-field cron expression for when to check, in the **server's local time** (default `"0 * * * *"` — every hour on the hour) |
-| `monitoring.run_on_start` | Also run one catch-up cycle at startup (default `true`) |
-| `monitoring.max_videos_check` / `max_age_hours` | How far back each cycle looks |
-| `monitoring.daily_budget_usd` | Hard spend cap per UTC day across all channels |
-| `monitoring.resend_from` / `subject_prefix` | Digest sender address and subject prefix |
-| `database` | SQLite file path. Unset (default) → `$XDG_DATA_HOME/yt-summarizer/videos.db` (i.e. `~/.local/share/yt-summarizer/videos.db`). An absolute path is used as-is; a relative path resolves under the XDG data dir |
+| Models and prices | $/1M input and output tokens for each model family — used for every cost estimate and for the daily budget |
+| Videos listed per channel | How many recent videos/lives to list |
+| Seconds between YouTube requests | Minimum pause between YouTube requests |
+| Transcript languages | Preferred transcript languages, in order; falls back to the original-language auto captions |
+| Cookies file | Optional Netscape-format cookies file for higher rate limits |
+| Ask: context ceiling / assumed answer length / max output | Context sent with a question, assumed answer length for the estimate, and hard cap on thinking plus answer |
+| Check channels automatically | Turn the background monitor on |
+| Schedule | 5-field cron expression for when to check, in the **server's local time** (default `0 * * * *` — every hour on the hour) |
+| Also check when the server starts | Run one catch-up cycle at startup (on by default) |
+| Recent videos checked / ignore videos older than | How far back each cycle looks |
+| Daily budget | Hard spend cap per UTC day across all channels |
+| Digest sender / subject prefix | Sender address (on a domain verified at Resend) and subject prefix of the digest |
 
-Each prompt carries its own model, effort and output cap, set in "Manage prompts". A prompt without a model or an effort cannot run, so prompts created before this was per prompt need both chosen once. The output cap covers thinking plus response; raise it when you raise the effort.
+**Models.** A prompt or a question chooses a family — Fable, Opus, Sonnet or Haiku — and always runs on the newest model of that family. The list comes from Anthropic's Models API (it needs your API key; without it the models known to this version are offered), is refreshed every few hours, and "Check for new models" in Settings refreshes it on demand. Anthropic's API does not report prices, so they are a setting: when a family moves to a new model the app asks you to check its price, and keeps using the old one until you save.
 
-Secrets live in a `.env` next to the config file
-(`~/.config/yt-summarizer/.env`, or `backend/.env` as a fallback) —
-`ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
-`config.yaml`.
+Each prompt carries its own model family, effort and output cap, set in "Manage prompts". A prompt without a model cannot run, nor one without an effort when its model takes one (Haiku takes none). The output cap covers thinking plus response; raise it when you raise the effort.
+
+Secrets live in `~/.config/yt-summarizer/.env` (or `backend/.env` as a
+fallback) — `ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
+the database.
 
 ## Data & migrating
 
 The database lives at `~/.local/share/yt-summarizer/videos.db` (following the
-XDG Base Directory spec; override with `$XDG_DATA_HOME` or the `database:`
-config key).
+XDG Base Directory spec; relocate it with `$XDG_DATA_HOME`).
+
+**Upgrading from a version with a `config.yaml`.** The file in `~/.config/yt-summarizer/` (or where `$YT_SUMMARIZER_CONFIG` points) is read on the first start: its settings and prompts are imported into the database, and prompts that named a model id move to its family. After that it is no longer needed and can be deleted. If it set `database:` to another location, the backend refuses to start until the database is moved to the XDG location (or `$XDG_DATA_HOME` points at it) and that line is removed.
 
 The schema is upgraded automatically on the next backend start (a `channels`
 table and a `channel_id` column are added).
@@ -167,13 +165,13 @@ table and a `channel_id` column are added).
   uploader, or not yet generated for a very recent upload/live). Skipped
   videos stay unprocessed and can be retried later.
 - **"YouTube rate limit (HTTP 429)"** — YouTube is throttling requests from
-  your IP. Requests are already paced (`youtube_request_interval` in
-  `config.yaml`, default 2 s) and retried once after a 20 s backoff; when the
+  your IP. Requests are already paced ("Seconds between YouTube requests" in
+  Settings, default 2 s) and retried once after a 20 s backoff; when the
   429 persists, the remaining videos in the batch are skipped so the
   throttling isn't made worse. Wait a few minutes and rerun the estimate —
   already-summarized videos reuse their stored transcript and cost no YouTube
-  requests. If it keeps happening, raise `youtube_request_interval` or set
-  `cookies_file` (logged-in requests get higher limits).
+  requests. If it keeps happening, raise that pause or set a cookies file in
+  Settings (logged-in requests get higher limits).
 - **No videos found / yt-dlp errors** — YouTube changes its site regularly;
   update with `.venv/bin/pip install -U yt-dlp`.
 - **"Anthropic authentication failed" (HTTP 502)** — check that `backend/.env`
@@ -183,8 +181,8 @@ table and a `channel_id` column are added).
 - **"This estimate has expired" (HTTP 410)** — estimates are kept in memory
   and consumed on approval; after a backend restart just run the estimate
   again.
-- **Costs look wrong** — the `pricing` table in `config.yaml` is only used for
-  display; keep it in sync with the official pricing page.
+- **Costs look wrong** — the prices in Settings drive the cost math; keep them
+  in sync with the official pricing page.
 - **Reprocess a video** — in the *Process videos* tab, tick an
   already-processed video (its status flips to "Reprocess") and run the
   estimate as usual. The stored transcript is reused, and the new summary

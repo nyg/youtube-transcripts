@@ -7,19 +7,15 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Literal, get_args
 
 import anthropic
 
 from .config import ModelPricing
 from .mentions import CONFIDENCE_LEVELS, Mention
+from .models import EFFORT_LEVELS, ClaudeModel, family_of
 from .transcripts import Transcript
 
 log = logging.getLogger(__name__)
-
-
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
-EFFORT_LEVELS: tuple[str, ...] = get_args(Effort)
 
 
 class SummarizerError(Exception):
@@ -29,15 +25,16 @@ class SummarizerError(Exception):
 @dataclass(frozen=True)
 class ModelSettings:
     model: str
-    effort: str
+    effort: str | None  # None for a model that takes no effort level
     max_output_tokens: int  # caps thinking and response together
+    pricing: ModelPricing
 
 
 @dataclass(frozen=True)
 class CostEstimate:
     input_tokens: int
     estimated_output_tokens: int
-    cost_usd: float | None  # None when the model has no pricing entry
+    cost_usd: float
 
 
 @dataclass(frozen=True)
@@ -52,7 +49,7 @@ class AnswerResult:
     text: str
     tokens_input: int
     tokens_output: int
-    cost_usd: float | None
+    cost_usd: float
     stop_reason: str | None
 
 
@@ -61,7 +58,7 @@ class SummaryResult:
     text: str
     tokens_input: int
     tokens_output: int
-    cost_usd: float | None
+    cost_usd: float
     stop_reason: str | None
     mentions: list[Mention] = field(default_factory=list)
     tokens_thinking: int | None = None  # part of tokens_output; None if not reported
@@ -78,7 +75,7 @@ def _api_errors(model: str):
         ) from exc
     except anthropic.NotFoundError as exc:
         raise SummarizerError(
-            f"Unknown model {model!r} — check its id under 'pricing' in config.yaml"
+            f"Unknown model {model!r} — refresh the model list in Settings"
         ) from exc
     except anthropic.RateLimitError as exc:
         raise SummarizerError(
@@ -227,27 +224,48 @@ def _parse_extraction(raw: str, stance_labels: list[str]) -> tuple[str, list[Men
     return summary.strip(), mentions
 
 
+def _output_config(settings: ModelSettings) -> dict:
+    return {"effort": settings.effort} if settings.effort else {}
+
+
+def _claude_model(info) -> ClaudeModel | None:
+    family = family_of(info.id)
+    if family is None:
+        return None
+    effort = info.capabilities.effort if info.capabilities else None
+    efforts = tuple(
+        level
+        for level in EFFORT_LEVELS
+        if effort is not None
+        and effort.supported
+        and getattr(getattr(effort, level, None), "supported", False)
+    )
+    return ClaudeModel(family, info.id, info.display_name, efforts)
+
+
 class ClaudeSummarizer:
-    def __init__(self, pricing: dict[str, ModelPricing]) -> None:
+    def __init__(self) -> None:
         # Created lazily so missing credentials surface as a SummarizerError on
         # first use (via _api_errors) instead of failing at construction time.
         self._client: anthropic.Anthropic | None = None
-        self._pricing = pricing
 
     def _get_client(self) -> anthropic.Anthropic:
         if self._client is None:
             self._client = anthropic.Anthropic()
         return self._client
 
-    def cost(self, model: str, tokens_input: int, tokens_output: int) -> float | None:
-        """Price for a token count; None if the model has no pricing entry.
+    def list_models(self) -> list[ClaudeModel]:
+        with _api_errors("list"):
+            listed = [_claude_model(info) for info in self._get_client().models.list()]
+        return [model for model in listed if model is not None]
+
+    def cost(self, settings: ModelSettings, tokens_input: int, tokens_output: int) -> float:
+        """Price for a token count.
 
         Also used for the monitor's worst-case budget pre-check
-        (cost(model, input_tokens, max_output_tokens)) before spending on a call.
+        (cost(settings, input_tokens, max_output_tokens)) before spending on a call.
         """
-        price = self._pricing.get(model)
-        if price is None:
-            return None
+        price = settings.pricing
         return (
             tokens_input / 1_000_000 * price.input_per_mtok
             + tokens_output / 1_000_000 * price.output_per_mtok
@@ -262,19 +280,21 @@ class ClaudeSummarizer:
     ) -> dict:
         timestamped = extraction is not None and bool(transcript.segments)
         system = prompt
-        output_config: dict = {"effort": settings.effort}
+        output_config = _output_config(settings)
         if extraction is not None:
             system = f"{prompt}\n\n{_extraction_instructions(extraction, timestamped)}"
             output_config["format"] = {
                 "type": "json_schema",
                 "schema": _extraction_schema(extraction.stance_labels),
             }
-        return {
+        kwargs = {
             "model": settings.model,
             "system": system,
             "messages": _messages(transcript.rendered(timestamps=timestamped)),
-            "output_config": output_config,
         }
+        if output_config:
+            kwargs["output_config"] = output_config
+        return kwargs
 
     def estimate(
         self,
@@ -292,7 +312,7 @@ class ClaudeSummarizer:
         return CostEstimate(
             input_tokens=count.input_tokens,
             estimated_output_tokens=estimated_output_tokens,
-            cost_usd=self.cost(settings.model, count.input_tokens, estimated_output_tokens),
+            cost_usd=self.cost(settings, count.input_tokens, estimated_output_tokens),
         )
 
     def summarize(
@@ -341,7 +361,7 @@ class ClaudeSummarizer:
             text=text,
             tokens_input=usage.input_tokens,
             tokens_output=usage.output_tokens,
-            cost_usd=self.cost(settings.model, usage.input_tokens, usage.output_tokens),
+            cost_usd=self.cost(settings, usage.input_tokens, usage.output_tokens),
             stop_reason=response.stop_reason,
             mentions=mentions,
             tokens_thinking=details.thinking_tokens if details else None,
@@ -349,12 +369,14 @@ class ClaudeSummarizer:
         )
 
     def answer_kwargs(self, settings: ModelSettings, question: str, context: str) -> dict:
-        return {
+        kwargs = {
             "model": settings.model,
             "system": answer_system(context),
             "messages": answer_messages(question),
-            "output_config": {"effort": settings.effort},
         }
+        if output_config := _output_config(settings):
+            kwargs["output_config"] = output_config
+        return kwargs
 
     def estimate_answer(
         self,
@@ -371,7 +393,7 @@ class ClaudeSummarizer:
         return CostEstimate(
             input_tokens=count.input_tokens,
             estimated_output_tokens=estimated_output_tokens,
-            cost_usd=self.cost(settings.model, count.input_tokens, estimated_output_tokens),
+            cost_usd=self.cost(settings, count.input_tokens, estimated_output_tokens),
         )
 
     def answer(self, settings: ModelSettings, question: str, context: str) -> AnswerResult:
@@ -395,6 +417,6 @@ class ClaudeSummarizer:
             text=text,
             tokens_input=usage.input_tokens,
             tokens_output=usage.output_tokens,
-            cost_usd=self.cost(settings.model, usage.input_tokens, usage.output_tokens),
+            cost_usd=self.cost(settings, usage.input_tokens, usage.output_tokens),
             stop_reason=response.stop_reason,
         )

@@ -1,4 +1,5 @@
-import { useMeta } from "@/api/queries"
+import { useMeta, useModelChoice } from "@/api/queries"
+import type { ClaudeModel } from "@/api/types"
 import {
   Select,
   SelectContent,
@@ -15,21 +16,23 @@ interface Props {
   invalid?: boolean
 }
 
+const shortName = (model: ClaudeModel) => model.name.replace(/^Claude /, "")
+
 export function ModelSelect({ value, onChange, label, disabled, invalid }: Props) {
   const { data: meta } = useMeta()
   const models = meta?.models ?? []
-  const unpriced = !!value && !!meta && !models.includes(value)
+  const unavailable = !!value && !!meta && !models.some((model) => model.family === value)
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-44" aria-label={label} aria-invalid={invalid}>
+      <SelectTrigger className="w-36" aria-label={label} aria-invalid={invalid}>
         <SelectValue placeholder="Model" />
       </SelectTrigger>
       <SelectContent>
-        {unpriced && <SelectItem value={value}>{value} (no pricing)</SelectItem>}
+        {unavailable && <SelectItem value={value}>{value} (unavailable)</SelectItem>}
         {models.map((model) => (
-          <SelectItem key={model} value={model}>
-            {model}
+          <SelectItem key={model.family} value={model.family}>
+            {shortName(model)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -37,16 +40,26 @@ export function ModelSelect({ value, onChange, label, disabled, invalid }: Props
   )
 }
 
-export function EffortSelect({ value, onChange, label, disabled, invalid }: Props) {
-  const { data: meta } = useMeta()
+interface EffortProps extends Props {
+  model: string
+}
+
+export function EffortSelect({ model, value, onChange, label, disabled, invalid }: EffortProps) {
+  const choice = useModelChoice(model, value)
+  const efforts = choice.model?.efforts ?? []
+  const takesNone = !!choice.model && !choice.needsEffort
 
   return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-24" aria-label={label} aria-invalid={invalid}>
-        <SelectValue placeholder="Effort" />
+    <Select
+      value={efforts.includes(value) ? value : ""}
+      onValueChange={onChange}
+      disabled={disabled || efforts.length === 0}
+    >
+      <SelectTrigger className="w-28" aria-label={label} aria-invalid={invalid}>
+        <SelectValue placeholder={takesNone ? "No effort" : "Effort"} />
       </SelectTrigger>
       <SelectContent>
-        {(meta?.efforts ?? []).map((effort) => (
+        {efforts.map((effort) => (
           <SelectItem key={effort} value={effort}>
             {effort}
           </SelectItem>

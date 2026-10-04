@@ -16,16 +16,18 @@ Anthropic until the user approves an on-screen cost estimate.
 frontend/  Vite + React + TS + Tailwind + shadcn/ui       (dev server :5173)
 backend/   FastAPI + uvicorn                               (API server :8000)
            ├── app/            REST API (routers/), estimate store, job worker
-           │   ├── main.py         lifespan wiring: config, db, prompt bootstrap, jobs
+           │   ├── main.py         lifespan wiring: config, db, settings, prompt bootstrap, jobs
            │   ├── routers/        channels, prompts, estimates, jobs, summaries,
-           │   │                   mentions, search, questions, meta
+           │   │                   mentions, search, questions, settings, meta
+           │   ├── settings.py     loads the stored settings, holds the current ones
            │   ├── jobs.py         in-memory job registry + background worker
            │   ├── estimates.py    in-memory store carrying estimates -> jobs
            │   ├── prompts.py      resolves a prompt row -> Extraction spec
            │   └── schemas.py      Pydantic API models
            └── yt_summarizer/  domain modules
-               ├── config.py       loads config.yaml + .env
-               ├── paths.py        XDG resolution for config file & database
+               ├── config.py       settings parsing/validation, .env, older config.yaml
+               ├── models.py       model families, newest model per family (Models API)
+               ├── paths.py        XDG resolution for the database & secrets
                ├── youtube_client.py  yt-dlp listing, RSS date enrichment
                ├── transcripts.py  caption track selection + json3 parsing (timed)
                ├── mentions.py     the Mention record + entity_key normalization
@@ -56,7 +58,7 @@ cd frontend && pnpm run lint    # oxlint
 ```
 
 Python 3.14 lives in `.venv`. Backend commands run from `backend/` using
-`../.venv/bin/...`. `ANTHROPIC_API_KEY` goes in a `.env` next to the config file
+`../.venv/bin/...`. `ANTHROPIC_API_KEY` goes in `$XDG_CONFIG_HOME/yt-summarizer/.env`
 (only needed for actual summarization, not for listing/browsing).
 
 To verify UI changes without touching the user's real DB or hammering YouTube,
@@ -65,19 +67,22 @@ a scratch dir and seed a test `videos.db` (see `yt_summarizer/database.py`).
 
 ## Conventions & gotchas (read before touching these areas)
 
-**Paths are XDG-based** (`yt_summarizer/paths.py`). `ensure_config()` resolves
-the config to `$XDG_CONFIG_HOME/yt-summarizer/config.yaml`, **creating it on
-first run** by copying `backend/config.example.yaml` (or a leftover
-`backend/config.yaml` from an older install, which holds real settings). The
-checkout is never the live config — only the template is tracked, and
-`backend/config.yaml` is gitignored. `$YT_SUMMARIZER_CONFIG` overrides and is
-never copied to; a failed copy falls back to reading the template in place.
-Database defaults to `$XDG_DATA_HOME/yt-summarizer/videos.db`, and the
-Makefile's detached-mode logs and PID files to `$XDG_STATE_HOME/yt-summarizer`
+**Paths are XDG-based, and there is no config file** (`yt_summarizer/paths.py`).
+The database is always `$XDG_DATA_HOME/yt-summarizer/videos.db`
+(`paths.database_path()`), secrets are read from
+`$XDG_CONFIG_HOME/yt-summarizer/.env`, and everything else is a setting stored
+in the database (see below). Nothing creates or requires a `config.yaml`. One
+left by an older install (in the config dir, or where `$YT_SUMMARIZER_CONFIG`
+points) is only read to import its settings and prompts on the first start;
+`config.read_legacy_config` refuses to start if it names another `database`,
+because silently opening the default one would look like data loss.
+The Makefile's detached-mode logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
 (`STATE_DIR`; not `$XDG_RUNTIME_DIR`, which is wiped when the user's last
 session ends — `make start` is meant to survive logout). Nothing the app or the
 Makefile writes belongs inside the checkout: don't hardcode a repo-relative
 database, config, or log path.
+
+**Settings live in the DB and are edited in the UI.** The `settings` table holds one JSON value per top-level key (`max_videos_fetch`, `transcript_languages`, `youtube_request_interval`, `cookies_file`, `pricing`, `priced_models`, `monitoring`, `ask`). `config.parse_settings` is the single place they are validated, for the stored values and for `PUT /api/settings` alike (a `ConfigError` becomes a 422). On the first start with an empty table, `app/settings.py` `load_settings` imports whatever an older `config.yaml` still holds (`config.legacy_settings`), then the file is ignored. `app.state.settings` is a `SettingsStore`: read `.current` at the time of use and never keep a copy, so a save takes effect without a restart. Saving also re-applies the YouTube pacing and wakes the monitor. Add a setting in `Settings`, `parse_settings`, `settings_to_raw`, `SettingsBody` and the field lists of `SettingsDialog.tsx`.
 
 **The monitor is cron-scheduled in local time.** `monitoring.schedule` is a
 5-field cron expression (croniter); `app/monitor.py` recomputes the next fire
@@ -86,13 +91,15 @@ stable and restart-independent. This is the one place local time is
 authoritative — see the UTC rule below, which governs stored/served timestamps.
 `monitoring.run_on_start` (default true) additionally runs one catch-up cycle at
 startup. The legacy `interval_minutes` key is rejected with a `ConfigError`
-rather than silently ignored.
+rather than silently ignored. The monitor thread always runs: it idles while
+`monitoring.enabled` is false, and `ChannelMonitor.refresh()` wakes it after a
+settings save so it re-reads the schedule (enabling it at runtime does not
+trigger the catch-up cycle).
 
 **Channels and prompts live in the DB, not config.** Both are UI-managed CRUD
 entities (`channels` and `prompts` tables; `routers/channels.py` /
 `routers/prompts.py`; React `ChannelManagerDialog` / `PromptManagerDialog`).
-`config.yaml` holds only global settings (pricing, YouTube pacing,
-monitoring schedule/budget). A **prompt** carries its own text, model settings and
+A **prompt** carries its own text, model settings and
 `estimated_output_tokens` (the assumed output length used for cost estimates). A
 **channel** references exactly one prompt by name (`channels.prompt_name`,
 validated against the `prompts` table) and carries its own digest recipients
@@ -105,9 +112,13 @@ immutable (channels reference them by name). On first run, `main.py`
 `config.yaml` (back-filling channels that had no prompt), else seeds one starter
 prompt so a fresh install can add a channel right away.
 
-**Model, effort and output cap are per prompt, with no default.** There is no global model. `prompts.model` and `prompts.effort` are nullable only so rows from before this change survive the migration: the API requires both on create, and `app/prompts.py` `settings_for` returns `None` for a row that lacks either, which the estimate router turns into a 422 and the monitor into a skipped channel. The starter and legacy-imported prompts are seeded without them too. Never fall back to a default model or effort. The models on offer are the keys of the `pricing` table (`GET /api/meta`), so a prompt can only use a model the app can price — the monitor's budget check is skipped for an unpriced model. `effort` is always sent as `output_config.effort`, so the table must not list a model that rejects it (Haiku 4.5). `max_output_tokens` caps thinking plus response and is also the worst case of the monitor's budget pre-check. The three travel together as `ModelSettings`, held in `PreparedEstimate` / `PreparedQuestion`, so a job bills the settings the estimate was approved with even if the prompt is edited in between. Ask has no prompt: the model and effort come with each question, and `ask.max_output_tokens` is its cap.
+**A prompt chooses a model family, not a model.** The choice is one of `models.FAMILIES` (fable, opus, sonnet, haiku) and always runs on the newest model of that family, so a new model needs no code or settings change. `ModelCatalog` asks the Models API for the list (free, cached for hours), keeps the highest version per family, and falls back to `models.BUILT_IN` while the API is unreachable or for a family it does not list. `prompts.model` therefore stores a family; `main.py` `_adopt_model_families` converts model ids stored by older versions. `video_summaries.model` and `questions.model` keep the concrete model id that ran. The family is resolved to a model when the estimate is made (`app/prompts.py` `model_settings`), never at job time.
 
-**Run stats are stored with each summary.** `save_summary` records how the summary was produced: `effort`, `max_output_tokens`, `estimated_output_tokens`, `tokens_thinking`, `stop_reason` and `duration_ms`. `tokens_thinking` comes from `usage.output_tokens_details` and is a part of `tokens_output`, not an addition to it; it is NULL when the API omits the breakdown. All six are NULL on rows saved before they existed, they are replaced on reprocess, and the card's "Show stats" (`SummaryStats.tsx`) only appears when `effort` is set.
+**Model family, effort and output cap are per prompt, with no default.** There is no global model. `prompts.model` and `prompts.effort` are nullable so rows from before they existed survive the migration, and because a model may take no effort at all (Haiku 4.5: `ClaudeModel.efforts` is empty). `model_settings` returns `None` when the family is unknown or when the model takes an effort and the prompt has none it accepts, which the estimate router turns into a 422 and the monitor into a skipped channel. The starter and legacy-imported prompts are seeded without a model. Never fall back to a default model or effort. `effort` is sent as `output_config.effort` only when the model takes one. `max_output_tokens` caps thinking plus response and is also the worst case of the monitor's budget pre-check. Model id, effort, cap and price travel together as `ModelSettings`, held in `PreparedEstimate` / `PreparedQuestion`, so a job bills the settings the estimate was approved with even if the prompt or the prices are edited in between. Ask has no prompt: the family and effort come with each question, and `ask.max_output_tokens` is its cap.
+
+**Prices are a setting, per family.** The Models API reports no prices, so `pricing` is edited in Settings (defaults: `config.DEFAULT_PRICING`, which must match `models.BUILT_IN`). Every family always has a price, so a cost is never unknown for a new run (`cost_usd` is still NULL on old rows). `priced_models` records the model each price was saved for; when a family moves to a newer model, `GET /api/meta` reports `price_confirmed: false` and the UI asks to check the price (`PriceNotice.tsx`). Saving the settings confirms the prices for the current models. Until then the old price keeps being used, for estimates and for the monitor's budget.
+
+**Run stats are stored with each summary.** `save_summary` records how the summary was produced: `effort`, `max_output_tokens`, `estimated_output_tokens`, `tokens_thinking`, `stop_reason` and `duration_ms`. `tokens_thinking` comes from `usage.output_tokens_details` and is a part of `tokens_output`, not an addition to it; it is NULL when the API omits the breakdown. `effort` is also NULL for a model that takes none. All six are NULL on rows saved before they existed, they are replaced on reprocess, and the card's "Show stats" (`SummaryStats.tsx`) only appears when `max_output_tokens` is set.
 
 **Structured mentions.** A prompt may declare `entity_kind` (coin, stock,
 product…) and its own `stance_labels`; with labels set, summarization switches to
@@ -182,7 +193,7 @@ for known videos (no YouTube request), and `Database.save_summary` upserts
 (`ON CONFLICT(video_id) DO UPDATE`), so reprocessing overwrites the old summary.
 
 **YouTube 429s are IP rate-limiting, not bugs.** Requests are paced process-wide
-(`youtube_client._throttle`, `youtube_request_interval` in config). Transcript
+(`youtube_client._throttle`, `youtube_request_interval` in Settings). Transcript
 fetch retries once after a backoff, then skips the rest of the batch to avoid
 digging deeper. Don't parallelize YouTube requests.
 

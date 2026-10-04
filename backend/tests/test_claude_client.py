@@ -15,10 +15,12 @@ from yt_summarizer.claude_client import (
     SummarizerError,
 )
 from yt_summarizer.config import ModelPricing
+from yt_summarizer.models import ClaudeModel
 from yt_summarizer.transcripts import Segment, Transcript
 
-PRICING = {"m": ModelPricing(input_per_mtok=1.0, output_per_mtok=5.0)}
-SETTINGS = ModelSettings(model="m", effort="low", max_output_tokens=4096)
+PRICING = ModelPricing(input_per_mtok=1.0, output_per_mtok=5.0)
+SETTINGS = ModelSettings(model="m", effort="low", max_output_tokens=4096, pricing=PRICING)
+NO_EFFORT = ModelSettings(model="m", effort=None, max_output_tokens=4096, pricing=PRICING)
 
 
 class _Stream:
@@ -67,7 +69,7 @@ class FakeMessages:
 def _summarizer(
     text: str = "", stop_reason: str = "end_turn", thinking_tokens: int | None = None
 ) -> ClaudeSummarizer:
-    summarizer = ClaudeSummarizer(pricing=PRICING)
+    summarizer = ClaudeSummarizer()
     summarizer._client = SimpleNamespace(
         messages=FakeMessages(text, stop_reason, thinking_tokens)
     )
@@ -196,13 +198,54 @@ def test_answer_estimate_and_answer_send_the_same_request():
     assert counted["output_config"] == {"effort": "low"}
 
 
-def test_cost_uses_the_pricing_of_the_given_model():
+def test_cost_uses_the_pricing_of_its_settings():
     summarizer = _summarizer("A summary")
     result = summarizer.summarize(SETTINGS, "system", _transcript())
     assert result.cost_usd == pytest.approx(1234 / 1e6 * 1.0 + 56 / 1e6 * 5.0)
 
-    unpriced = ModelSettings(model="unpriced", effort="low", max_output_tokens=4096)
-    assert summarizer.summarize(unpriced, "system", _transcript()).cost_usd is None
+
+def test_a_model_without_effort_gets_no_output_config():
+    summarizer = _summarizer("An answer [1].")
+    summarizer.summarize(NO_EFFORT, "system", _transcript())
+    summarizer.answer(NO_EFFORT, "What about Bitcoin?", "[1] source")
+
+    summarized, answered = summarizer._client.messages.stream_kwargs
+    assert "output_config" not in summarized
+    assert "output_config" not in answered
+
+
+def test_extraction_without_effort_sends_only_the_format():
+    summarizer = _summarizer(_payload())
+    summarizer.summarize(NO_EFFORT, "system", _transcript(), _extraction())
+
+    output_config = summarizer._client.messages.stream_kwargs[0]["output_config"]
+    assert list(output_config) == ["format"]
+
+
+def _model_info(model_id: str, name: str, *efforts: str):
+    supported = {level: SimpleNamespace(supported=level in efforts) for level in
+                 ("low", "medium", "high", "xhigh", "max")}
+    effort = SimpleNamespace(supported=bool(efforts), **supported)
+    return SimpleNamespace(
+        id=model_id, display_name=name, capabilities=SimpleNamespace(effort=effort)
+    )
+
+
+def test_listed_models_keep_their_family_and_supported_efforts():
+    summarizer = ClaudeSummarizer()
+    listed = [
+        _model_info("claude-opus-9", "Claude Opus 9", "low", "high", "max"),
+        _model_info("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
+        _model_info("claude-mythos-5-1", "Claude Mythos 5.1", "low"),
+        SimpleNamespace(id="claude-sonnet-7", display_name="Claude Sonnet 7", capabilities=None),
+    ]
+    summarizer._client = SimpleNamespace(models=SimpleNamespace(list=lambda: listed))
+
+    assert summarizer.list_models() == [
+        ClaudeModel("opus", "claude-opus-9", "Claude Opus 9", ("low", "high", "max")),
+        ClaudeModel("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5", ()),
+        ClaudeModel("sonnet", "claude-sonnet-7", "Claude Sonnet 7", ()),
+    ]
 
 
 def test_summary_reports_thinking_tokens_and_duration():

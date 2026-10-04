@@ -7,6 +7,7 @@ import {
 import { api } from "./client"
 import type {
   Channel,
+  ClaudeModel,
   Entity,
   Estimate,
   EstimateRequest,
@@ -17,6 +18,7 @@ import type {
   Question,
   QuestionEstimate,
   SearchHit,
+  Settings,
   Summary,
   SummaryDetail,
   VideoList,
@@ -27,6 +29,46 @@ export function useMeta() {
     queryKey: ["meta"],
     queryFn: () => api<Meta>("/api/meta"),
     staleTime: Infinity,
+  })
+}
+
+export function useModelChoice(family: string | null, effort: string | null) {
+  const { data: meta } = useMeta()
+  const model = meta?.models.find((candidate) => candidate.family === family)
+  const needsEffort = !!model && model.efforts.length > 0
+  const complete = !!model && (!needsEffort || model.efforts.includes(effort ?? ""))
+  return { loading: !meta, model, needsEffort, complete }
+}
+
+export function useSettings(enabled: boolean) {
+  return useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api<Settings>("/api/settings"),
+    enabled,
+  })
+}
+
+export function useUpdateSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (settings: Settings) =>
+      api<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
+    onSuccess: (saved) => {
+      const previous = queryClient.getQueryData<Settings>(["settings"])
+      queryClient.setQueryData(["settings"], saved)
+      queryClient.invalidateQueries({ queryKey: ["meta"] })
+      // A listing costs a YouTube request: redo it only when its length changed.
+      if (previous?.max_videos_fetch !== saved.max_videos_fetch)
+        queryClient.invalidateQueries({ queryKey: ["videos"] })
+    },
+  })
+}
+
+export function useRefreshModels() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api<ClaudeModel[]>("/api/models/refresh", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meta"] }),
   })
 }
 
@@ -96,7 +138,7 @@ export function useAddPrompt() {
       text: string
       estimatedOutputTokens: number
       model: string
-      effort: string
+      effort?: string
       maxOutputTokens: number
       entityKind?: string
       stanceLabels?: string[]
@@ -108,7 +150,7 @@ export function useAddPrompt() {
           text: vars.text,
           estimated_output_tokens: vars.estimatedOutputTokens,
           model: vars.model,
-          effort: vars.effort,
+          effort: vars.effort ?? null,
           max_output_tokens: vars.maxOutputTokens,
           entity_kind: vars.entityKind ?? null,
           stance_labels: vars.stanceLabels ?? [],
@@ -289,7 +331,7 @@ export function useEstimateQuestion() {
     mutationFn: (vars: {
       question: string
       model: string
-      effort: string
+      effort?: string
       channelId: number | undefined
       since?: string
     }) =>
@@ -298,7 +340,7 @@ export function useEstimateQuestion() {
         body: JSON.stringify({
           question: vars.question,
           model: vars.model,
-          effort: vars.effort,
+          effort: vars.effort ?? null,
           channel_id: vars.channelId ?? null,
           since: vars.since ?? null,
         }),

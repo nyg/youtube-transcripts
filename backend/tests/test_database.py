@@ -416,3 +416,17 @@ def test_summaries_from_before_run_stats_get_the_columns(tmp_path):
 
     assert row is not None
     assert (row["effort"], row["tokens_thinking"], row["duration_ms"]) == (None, None, None)
+
+
+def test_settings_are_stored_per_key_and_overwritten(tmp_path):
+    db = Database(tmp_path / "v.db")
+    empty = db.get_settings()
+
+    db.save_settings({"max_videos_fetch": 25, "ask": {"max_output_tokens": 8192}})
+    db.save_settings({"max_videos_fetch": 40})
+
+    assert empty == {}
+    assert Database(tmp_path / "v.db").get_settings() == {
+        "max_videos_fetch": 40,
+        "ask": {"max_output_tokens": 8192},
+    }

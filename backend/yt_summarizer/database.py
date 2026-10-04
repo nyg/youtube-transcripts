@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .chunking import Chunk, build_chunks, fts_query
 from .config import DEFAULT_MAX_OUTPUT_TOKENS
@@ -80,6 +81,11 @@ CREATE TABLE IF NOT EXISTS questions (
     tokens_output INTEGER,
     cost_usd      REAL,
     created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
@@ -160,6 +166,23 @@ class Database:
             raise
         finally:
             conn.close()
+
+    # -- settings ----------------------------------------------------------
+
+    def get_settings(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        return {row["key"]: json.loads(row["value"]) for row in rows}
+
+    def save_settings(self, values: Mapping[str, Any]) -> None:
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [(key, json.dumps(value)) for key, value in values.items()],
+            )
+
+    # -- channels ----------------------------------------------------------
 
     def list_channels(self) -> list[sqlite3.Row]:
         with self._connect() as conn:
@@ -354,7 +377,7 @@ class Database:
         """Total cost_usd of summaries processed at or after `iso_start` (UTC ISO).
 
         Reprocessing upserts processed_at, so a video (re)processed today counts
-        toward today. Rows with a NULL cost (models without pricing) are ignored.
+        toward today. Rows with a NULL cost are ignored.
         """
         with self._connect() as conn:
             row = conn.execute(
