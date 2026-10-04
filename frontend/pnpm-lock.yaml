@@ -9,34 +9,34 @@ importers:
   .:
     dependencies:
       '@fontsource-variable/geist':
-        specifier: ^5.2.9
+        specifier: 5.2.9
         version: 5.2.9
       '@tailwindcss/vite':
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3(vite@8.1.5(@types/node@24.13.3)(jiti@2.7.0))
       '@tanstack/react-query':
-        specifier: ^5.101.2
+        specifier: 5.101.2
         version: 5.101.2(react@19.2.7)
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 0.7.1
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 2.1.1
         version: 2.1.1
       lucide-react:
-        specifier: ^1.25.0
+        specifier: 1.25.0
         version: 1.25.0(react@19.2.7)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 0.4.6
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       radix-ui:
-        specifier: ^1.6.2
+        specifier: 1.6.2
         version: 1.6.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react:
-        specifier: ^19.2.7
+        specifier: 19.2.7
         version: 19.2.7
       react-dom:
-        specifier: ^19.2.7
+        specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
       react-markdown:
         specifier: ^10.1.0
@@ -45,26 +45,26 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1
       shadcn:
-        specifier: ^4.13.1
+        specifier: 4.13.1
         version: 4.13.1(typescript@6.0.3)
       sonner:
-        specifier: ^2.0.7
+        specifier: 2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwind-merge:
-        specifier: ^3.6.0
+        specifier: 3.6.0
         version: 3.6.0
       tailwindcss:
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3
       tw-animate-css:
-        specifier: ^1.4.0
+        specifier: 1.4.0
         version: 1.4.0
     devDependencies:
       '@tailwindcss/typography':
-        specifier: ^0.5.20
+        specifier: 0.5.20
         version: 0.5.20(tailwindcss@4.3.3)
       '@types/node':
-        specifier: ^24.13.2
+        specifier: 24.13.3
         version: 24.13.3
       '@types/react':
         specifier: 19.2.17
@@ -73,16 +73,16 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.17)
       '@vitejs/plugin-react':
-        specifier: ^6.0.3
+        specifier: 6.0.3
         version: 6.0.3(vite@8.1.5(@types/node@24.13.3)(jiti@2.7.0))
       oxlint:
-        specifier: ^1.71.0
+        specifier: 1.74.0
         version: 1.74.0
       typescript:
-        specifier: ~6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       vite:
-        specifier: ^8.1.1
+        specifier: 8.1.5
         version: 8.1.5(@types/node@24.13.3)(jiti@2.7.0)
 
 packages:
