@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 yt-dlp
-anthropic>=1.7
+anthropic==1.11.0
 httpx
 python-dotenv
 PyYAML
