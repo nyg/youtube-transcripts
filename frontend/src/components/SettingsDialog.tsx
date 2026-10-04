@@ -108,7 +108,7 @@ const MONITORING_FIELDS: Field[] = [
 
 const priceField = (family: string, side: "input" | "output"): Field => ({
   path: `pricing.${family}.${side}`,
-  label: side === "input" ? "Input $" : "Output $",
+  label: `${side === "input" ? "Input" : "Output"} price of ${family}`,
   kind: "float",
   min: 0,
 })
@@ -237,32 +237,42 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
           Prices are in USD per million tokens. Update them manually when a model
           changes.
         </p>
-        <ul className="space-y-2 sm:col-span-2">
-          {models.map((model) => (
-            <li key={model.family} className="flex flex-wrap items-end gap-x-3 gap-y-1">
-              <div className="min-w-40 flex-1">
-                <div className="font-medium capitalize">{model.family}</div>
-                <div className="text-muted-foreground text-xs">
-                  {model.name} · {model.id}
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex gap-x-3 text-xs font-medium" aria-hidden>
+            <span className="flex-1" />
+            <span className="w-24">Input $</span>
+            <span className="w-24">Output $</span>
+          </div>
+          <ul className="space-y-2">
+            {models.map((model) => (
+              <li key={model.family} className="space-y-1">
+                <div className="flex items-center gap-x-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium capitalize">{model.family}</div>
+                    <div className="text-muted-foreground text-xs">
+                      {model.name} · {model.id}
+                    </div>
+                  </div>
+                  {(["input", "output"] as const).map((side) => (
+                    <SettingField
+                      key={side}
+                      className="w-24"
+                      field={priceField(model.family, side)}
+                      draft={draft}
+                      onChange={set}
+                      hideLabel
+                    />
+                  ))}
                 </div>
-              </div>
-              {(["input", "output"] as const).map((side) => (
-                <SettingField
-                  key={side}
-                  className="w-24"
-                  field={priceField(model.family, side)}
-                  draft={draft}
-                  onChange={set}
-                />
-              ))}
-              {!model.price_confirmed && (
-                <p className="text-destructive w-full text-xs">
-                  New model — check its price, then save.
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
+                {!model.price_confirmed && (
+                  <p className="text-destructive text-xs">
+                    New model — check its price, then save.
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="sm:col-span-2">
           <Button
             variant="outline"
@@ -344,12 +354,13 @@ function SettingField({
   draft,
   onChange,
   className,
-}: ControlProps & { field: Field; className?: string }) {
+  hideLabel,
+}: ControlProps & { field: Field; className?: string; hideLabel?: boolean }) {
   const id = `setting-${field.path}`
   const numeric = field.kind !== "text"
   return (
     <div className={cn("space-y-1", field.wide && "sm:col-span-2", className)}>
-      <Label className="text-xs" htmlFor={id}>
+      <Label className={cn("text-xs", hideLabel && "sr-only")} htmlFor={id}>
         {field.label}
       </Label>
       <Input
