@@ -254,7 +254,7 @@ def _parse_monitor(raw: object) -> MonitorConfig:
         )
     schedule = str(raw.get("schedule") or DEFAULT_SCHEDULE).strip()
     if not croniter.is_valid(schedule):
-        raise ConfigError(f"monitoring.schedule is not a valid cron expression: {schedule!r}")
+        raise ConfigError(f"Schedule is not a valid cron expression: {schedule!r}")
     monitor = MonitorConfig(
         enabled=bool(raw.get("enabled", False)),
         schedule=schedule,
@@ -266,7 +266,7 @@ def _parse_monitor(raw: object) -> MonitorConfig:
         subject_prefix=str(raw.get("subject_prefix") or "New video summaries").strip(),
     )
     if monitor.enabled and not monitor.resend_from:
-        raise ConfigError("monitoring.resend_from is required when monitoring is enabled")
+        raise ConfigError("Monitoring needs an email sender")
     if monitor.max_videos_check < 1:
         raise ConfigError("monitoring.max_videos_check must be at least 1")
     if monitor.max_age_hours < 0:

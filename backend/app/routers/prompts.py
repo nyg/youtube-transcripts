@@ -51,7 +51,7 @@ def _resolve_model(family: str, request: Request) -> ClaudeModel:
     if model is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown model {family!r} — choose one of: {', '.join(FAMILIES)}",
+            detail=f"Unknown model {family!r}. Choose one of: {', '.join(FAMILIES)}",
         )
     return model
 
@@ -91,22 +91,29 @@ def add_prompt(body: PromptIn, request: Request) -> PromptOut:
 
 @router.patch("/{prompt_id}", response_model=PromptOut)
 def update_prompt(prompt_id: int, body: PromptPatch, request: Request) -> PromptOut:
+    name = body.name.strip() if body.name is not None else None
+    if name is not None and not name:
+        raise HTTPException(status_code=422, detail="Prompt name cannot be empty")
     text = body.text.strip() if body.text is not None else None
     if text is not None and not text:
         raise HTTPException(status_code=422, detail="Prompt text cannot be empty")
     _check_labels(body.stance_labels)
     if body.model is not None:
         _resolve_model(body.model, request)
-    row = request.app.state.db.update_prompt(
-        prompt_id,
-        text=text,
-        estimated_output_tokens=body.estimated_output_tokens,
-        entity_kind=body.entity_kind.strip() if body.entity_kind is not None else None,
-        stance_labels=body.stance_labels,
-        model=body.model,
-        effort=body.effort,
-        max_output_tokens=body.max_output_tokens,
-    )
+    try:
+        row = request.app.state.db.update_prompt(
+            prompt_id,
+            name=name,
+            text=text,
+            estimated_output_tokens=body.estimated_output_tokens,
+            entity_kind=body.entity_kind.strip() if body.entity_kind is not None else None,
+            stance_labels=body.stance_labels,
+            model=body.model,
+            effort=body.effort,
+            max_output_tokens=body.max_output_tokens,
+        )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail=f"Prompt {name!r} already exists")
     if row is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return _to_prompt(row)
@@ -124,6 +131,6 @@ def delete_prompt(prompt_id: int, request: Request) -> None:
         raise HTTPException(
             status_code=409,
             detail=f"Prompt {row['name']!r} is in use by: {labels}. "
-            "Reassign those channels to another prompt before deleting it.",
+            "Give those channels another prompt first.",
         )
     db.delete_prompt(prompt_id)

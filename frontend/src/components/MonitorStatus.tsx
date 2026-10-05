@@ -12,13 +12,13 @@ export function MonitorStatus() {
 
   const budget =
     meta.daily_budget_usd > 0
-      ? `${usd(meta.spend_today_usd)} / ${usd(meta.daily_budget_usd)} today`
-      : `${usd(meta.spend_today_usd)} today`
+      ? `${usd(meta.spend_today_usd)} of ${usd(meta.daily_budget_usd)} spent today`
+      : `${usd(meta.spend_today_usd)} spent today`
 
   // The schedule is a cron expression; show the next fire time in local time.
   const title = meta.monitor_next_run
-    ? `Automatic monitoring is on — next check ${formatDateTime(meta.monitor_next_run)}`
-    : "Automatic monitoring is on"
+    ? `Next check: ${formatDateTime(meta.monitor_next_run)}`
+    : undefined
 
   return (
     <span
@@ -26,7 +26,7 @@ export function MonitorStatus() {
       title={title}
     >
       <Clock className="size-3.5" />
-      Auto-monitor on · {budget}
+      Monitoring on · {budget}
     </span>
   )
 }

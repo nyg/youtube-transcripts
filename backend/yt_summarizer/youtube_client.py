@@ -25,6 +25,9 @@ log = logging.getLogger(__name__)
 _TABS = ("videos", "streams")
 
 
+RATE_LIMITED_MESSAGE = "YouTube is rate limiting requests (HTTP 429). Retry in a few minutes."
+
+
 class YouTubeRateLimitError(Exception):
     """Raised when YouTube answers HTTP 429 (IP is being rate limited)."""
 
@@ -78,9 +81,7 @@ def fetch_url(url: str) -> bytes:
             return ydl.urlopen(url).read()
         except HTTPError as exc:
             if exc.status == 429:
-                raise YouTubeRateLimitError(
-                    "YouTube rate limit (HTTP 429) — wait a few minutes and retry."
-                ) from exc
+                raise YouTubeRateLimitError(RATE_LIMITED_MESSAGE) from exc
             raise
 
 
@@ -103,7 +104,7 @@ def _normalize_channel_url(channel: str) -> str:
     """Accept an @handle, a UC... channel ID, or a full URL."""
     channel = channel.strip().rstrip("/")
     if not channel:
-        raise ValueError("No channel provided — expected an @handle, a UC... channel ID, or a URL")
+        raise ValueError("Enter an @handle, a channel ID or a URL.")
     if channel.startswith(("http://", "https://")):
         base = channel
     elif channel.startswith("@"):
@@ -262,9 +263,7 @@ def fetch_video_details(video: Video) -> tuple[Video, dict[str, Any] | None]:
             info: dict[str, Any] = dict(ydl.extract_info(video.url, download=False) or {})
     except DownloadError as exc:
         if _is_rate_limit(exc):
-            raise YouTubeRateLimitError(
-                "YouTube rate limit (HTTP 429) — wait a few minutes and retry."
-            ) from exc
+            raise YouTubeRateLimitError(RATE_LIMITED_MESSAGE) from exc
         log.warning("Could not fetch full metadata for %s: %s", video.video_id, exc)
         return video, None
 

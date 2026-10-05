@@ -67,18 +67,15 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Manage channels</DialogTitle>
+          <DialogTitle>Channels</DialogTitle>
           <DialogDescription>
-            Add a channel by @handle, channel ID (UC…), or URL, and pick the
-            prompt used to summarize it. The channel is verified on YouTube
-            before being added.
+            Add a channel by @handle, channel ID or URL, and choose its prompt.
           </DialogDescription>
         </DialogHeader>
 
         {noPrompts && (
           <p className="text-muted-foreground text-sm">
-            Create a prompt first in “Manage prompts”, then add a channel and
-            assign it.
+            Add a prompt in Prompts first.
           </p>
         )}
 
@@ -152,7 +149,7 @@ function ChannelRow({ channel, prompts }: { channel: Channel; prompts: Prompt[] 
     updateChannel.mutate(
       { channelId: channel.id, notifyEmails: parsed },
       {
-        onSuccess: () => toast.success(`Updated recipients for ${channel.label}`),
+        onSuccess: () => toast.success(`Updated ${channel.label}`),
         onError: (error) => toast.error(error.message),
       },
     )
@@ -172,7 +169,7 @@ function ChannelRow({ channel, prompts }: { channel: Channel; prompts: Prompt[] 
           disabled={deleteChannel.isPending}
           onClick={() =>
             deleteChannel.mutate(channel.id, {
-              onSuccess: () => toast.success(`Removed ${channel.label}`),
+              onSuccess: () => toast.success(`Deleted ${channel.label}`),
               onError: (error) => toast.error(error.message),
             })
           }
@@ -207,7 +204,7 @@ function ChannelRow({ channel, prompts }: { channel: Channel; prompts: Prompt[] 
         </div>
         <div className="min-w-48 flex-1 space-y-1">
           <Label className="text-xs" htmlFor={`emails-${channel.id}`}>
-            Digest emails (comma-separated)
+            Email new summaries to
           </Label>
           <Input
             id={`emails-${channel.id}`}

@@ -13,6 +13,8 @@ export interface Prompt {
   stance_labels: string[] // empty = summary only, no extraction
 }
 
+export type TranscriptSource = "manual" | "auto"
+
 export interface Mention {
   video_id: string
   entity: string
@@ -124,6 +126,7 @@ export interface EstimateItem {
   url: string
   status: "ok" | "no_transcript"
   detail: string | null
+  transcript_source: TranscriptSource | null
   input_tokens: number | null
   estimated_output_tokens: number | null
   cost_usd: number | null
@@ -171,6 +174,7 @@ export interface Summary {
   cost_usd: number | null
   processed_at: string
   channel_id: number | null
+  transcript_source: TranscriptSource | null
   mentions: Mention[]
   // How the summary was produced; null on summaries saved before these were recorded.
   effort: string | null

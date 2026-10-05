@@ -165,6 +165,7 @@ export function useUpdatePrompt() {
   return useMutation({
     mutationFn: (vars: {
       promptId: number
+      name?: string
       text?: string
       estimatedOutputTokens?: number
       model?: string
@@ -176,6 +177,7 @@ export function useUpdatePrompt() {
       api<Prompt>(`/api/prompts/${vars.promptId}`, {
         method: "PATCH",
         body: JSON.stringify({
+          ...(vars.name !== undefined && { name: vars.name }),
           ...(vars.text !== undefined && { text: vars.text }),
           ...(vars.estimatedOutputTokens !== undefined && {
             estimated_output_tokens: vars.estimatedOutputTokens,
@@ -189,7 +191,13 @@ export function useUpdatePrompt() {
           ...(vars.stanceLabels !== undefined && { stance_labels: vars.stanceLabels }),
         }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["prompts"] })
+      if (vars.name !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ["channels"] })
+        queryClient.invalidateQueries({ queryKey: ["summaries"] })
+      }
+    },
   })
 }
 

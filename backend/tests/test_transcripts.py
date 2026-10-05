@@ -10,6 +10,7 @@ from yt_dlp.networking.exceptions import RequestError
 
 from yt_summarizer import transcripts, youtube_client
 from yt_summarizer.transcripts import (
+    CaptionTrack,
     TranscriptError,
     _parse_json3,
     fetch_transcript,
@@ -34,7 +35,7 @@ def test_manual_beats_auto_for_same_language():
         "subtitles": {"en": _formats("manual-en", "json3", "vtt")},
         "automatic_captions": {"en": _formats("auto-en", "json3")},
     }
-    assert select_caption_track(info, ["en"]) == _url("manual-en")
+    assert select_caption_track(info, ["en"]) == CaptionTrack(_url("manual-en"), "manual")
 
 
 def test_regional_variant_matches_preferred_language():
@@ -42,7 +43,7 @@ def test_regional_variant_matches_preferred_language():
         "subtitles": {"en-GB": _formats("manual-en-gb", "json3")},
         "automatic_captions": {},
     }
-    assert select_caption_track(info, ["en"]) == _url("manual-en-gb")
+    assert select_caption_track(info, ["en"]) == CaptionTrack(_url("manual-en-gb"), "manual")
 
 
 def test_manual_variant_beats_auto_exact():
@@ -50,7 +51,7 @@ def test_manual_variant_beats_auto_exact():
         "subtitles": {"en-GB": _formats("manual-en-gb", "json3")},
         "automatic_captions": {"en": _formats("auto-en", "json3")},
     }
-    assert select_caption_track(info, ["en"]) == _url("manual-en-gb")
+    assert select_caption_track(info, ["en"]) == CaptionTrack(_url("manual-en-gb"), "manual")
 
 
 def test_language_order_wins_over_track_kind():
@@ -58,7 +59,7 @@ def test_language_order_wins_over_track_kind():
         "subtitles": {"de": _formats("manual-de", "json3")},
         "automatic_captions": {"en": _formats("auto-en", "json3")},
     }
-    assert select_caption_track(info, ["en", "de"]) == _url("auto-en")
+    assert select_caption_track(info, ["en", "de"]) == CaptionTrack(_url("auto-en"), "auto")
 
 
 def test_orig_track_is_last_resort():
@@ -69,7 +70,7 @@ def test_orig_track_is_last_resort():
             "de-orig": _formats("auto-de-orig", "json3"),
         },
     }
-    assert select_caption_track(info, ["en"]) == _url("auto-de-orig")
+    assert select_caption_track(info, ["en"]) == CaptionTrack(_url("auto-de-orig"), "auto")
 
 
 def test_track_without_json3_is_skipped():
@@ -77,7 +78,7 @@ def test_track_without_json3_is_skipped():
         "subtitles": {"en": _formats("manual-en", "vtt")},
         "automatic_captions": {"en": _formats("auto-en", "json3", "vtt")},
     }
-    assert select_caption_track(info, ["en"]) == _url("auto-en")
+    assert select_caption_track(info, ["en"]) == CaptionTrack(_url("auto-en"), "auto")
 
 
 def test_no_captions_returns_none():
@@ -136,9 +137,17 @@ def test_fetch_transcript_downloads_selected_track(monkeypatch, no_sleep):
         return _json3("Hello", "world").encode()
 
     monkeypatch.setattr(youtube_client, "fetch_url", fake_fetch)
-    assert fetch_transcript(_info_with_track(), "vid", ["en"]).text == "Hello world"
+    transcript = fetch_transcript(_info_with_track(), "vid", ["en"])
+    assert (transcript.text, transcript.source) == ("Hello world", "manual")
     assert calls == [_url("manual-en")]
     assert no_sleep == []
+
+
+def test_fetch_transcript_reports_an_auto_generated_track(monkeypatch, no_sleep):
+    monkeypatch.setattr(youtube_client, "fetch_url", lambda url: _json3("Hello").encode())
+    info = {"subtitles": {}, "automatic_captions": {"en": _formats("auto-en", "json3")}}
+
+    assert fetch_transcript(info, "vid", ["en"]).source == "auto"
 
 
 def test_fetch_transcript_retries_once_after_429(monkeypatch, no_sleep):

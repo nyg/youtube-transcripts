@@ -1,4 +1,4 @@
-import { Loader2, Trash2 } from "lucide-react"
+import { Loader2, Plus, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -32,6 +32,7 @@ interface Props {
 export function PromptManagerDialog({ open, onOpenChange }: Props) {
   const { data: prompts } = usePrompts()
   const addPrompt = useAddPrompt()
+  const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
   const [text, setText] = useState("")
   const [tokens, setTokens] = useState("2000")
@@ -49,6 +50,18 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
     isTokenCount(tokens) &&
     isTokenCount(maxTokens)
 
+  const closeForm = () => {
+    setAdding(false)
+    setName("")
+    setText("")
+    setTokens("2000")
+    setModel("")
+    setEffort("")
+    setMaxTokens(DEFAULT_MAX_OUTPUT_TOKENS)
+    setEntityKind("")
+    setLabels("")
+  }
+
   const submit = () => {
     if (!canAdd) return
     addPrompt.mutate(
@@ -65,14 +78,7 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
       {
         onSuccess: (p) => {
           toast.success(`Added ${p.name}`)
-          setName("")
-          setText("")
-          setTokens("2000")
-          setModel("")
-          setEffort("")
-          setMaxTokens(DEFAULT_MAX_OUTPUT_TOKENS)
-          setEntityKind("")
-          setLabels("")
+          closeForm()
         },
         onError: (error) => toast.error(error.message),
       },
@@ -80,89 +86,112 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) closeForm()
+        onOpenChange(next)
+      }}
+    >
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Manage prompts</DialogTitle>
+          <DialogTitle>Prompts</DialogTitle>
           <DialogDescription>
-            A prompt is the instruction sent to Claude to summarize a video.
-            Channels each choose one. Every prompt runs on the newest model of
-            the family you choose for it, at the effort you choose when that
-            model takes one. “Est. output” is the assumed output length used
-            for cost estimates; “Max output” is the hard cap on thinking plus
-            response. Give a prompt an entity kind and stance labels to also
-            extract mentions (entity, stance, quote) into the Mentions tab;
-            leave the labels empty for a summary only.
+            A prompt tells Claude how to summarize a video. Each channel uses
+            one. It runs on the newest model of the family you choose.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2">
-          <Input
-            placeholder="Prompt name (e.g. crypto-summary)"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={addPrompt.isPending}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <ModelSelect
-              label="Model for the new prompt"
-              value={model}
-              onChange={setModel}
-              disabled={addPrompt.isPending}
-            />
-            <EffortSelect
-              label="Effort for the new prompt"
-              model={model}
-              value={effort}
-              onChange={setEffort}
-              disabled={addPrompt.isPending}
-            />
-            <TokenField
-              id="new-prompt-tokens"
-              label="Est. output"
-              value={tokens}
-              onChange={setTokens}
-              disabled={addPrompt.isPending}
-            />
-            <TokenField
-              id="new-prompt-max-tokens"
-              label="Max output"
-              value={maxTokens}
-              onChange={setMaxTokens}
-              disabled={addPrompt.isPending}
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="w-40"
-              placeholder="Entity kind (e.g. coin)"
-              value={entityKind}
-              onChange={(e) => setEntityKind(e.target.value)}
-              disabled={addPrompt.isPending}
-            />
-            <Input
-              className="min-w-40 flex-1"
-              placeholder="Stance labels, comma-separated (e.g. bullish, bearish, neutral)"
-              value={labels}
-              onChange={(e) => setLabels(e.target.value)}
-              disabled={addPrompt.isPending}
-            />
-          </div>
-          <Textarea
-            placeholder="You are given the full transcript of a YouTube video. Summarize…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={addPrompt.isPending}
-          />
+        {!adding && (
           <div className="flex justify-end">
-            <Button onClick={submit} disabled={addPrompt.isPending || !canAdd}>
-              {addPrompt.isPending && <Loader2 className="animate-spin" />}
+            <Button onClick={() => setAdding(true)}>
+              <Plus />
               Add prompt
             </Button>
           </div>
-        </div>
+        )}
 
-        <Separator />
+        {adding && (
+          <div className="space-y-2">
+            <Input
+              autoFocus
+              placeholder="Name, e.g. crypto-summary"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={addPrompt.isPending}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <ModelSelect
+                label="Model for the new prompt"
+                value={model}
+                onChange={setModel}
+                disabled={addPrompt.isPending}
+              />
+              <EffortSelect
+                label="Effort for the new prompt"
+                model={model}
+                value={effort}
+                onChange={setEffort}
+                disabled={addPrompt.isPending}
+              />
+              <TokenField
+                id="new-prompt-tokens"
+                label="Est. output"
+                value={tokens}
+                onChange={setTokens}
+                disabled={addPrompt.isPending}
+              />
+              <TokenField
+                id="new-prompt-max-tokens"
+                label="Max output"
+                value={maxTokens}
+                onChange={setMaxTokens}
+                disabled={addPrompt.isPending}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Est. output is the length assumed for cost estimates. Max output
+              limits thinking plus summary.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="w-40"
+                placeholder="Entity kind, e.g. coin"
+                value={entityKind}
+                onChange={(e) => setEntityKind(e.target.value)}
+                disabled={addPrompt.isPending}
+              />
+              <Input
+                className="min-w-40 flex-1"
+                placeholder="Stance labels, e.g. bullish, bearish, neutral"
+                value={labels}
+                onChange={(e) => setLabels(e.target.value)}
+                disabled={addPrompt.isPending}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Optional. With stance labels, Claude also extracts mentions: each
+              entity, its stance and a quote.
+            </p>
+            <Textarea
+              placeholder="Instructions, e.g. Summarize this video transcript in a few short paragraphs."
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={addPrompt.isPending}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeForm} disabled={addPrompt.isPending}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={addPrompt.isPending || !canAdd}>
+                {addPrompt.isPending && <Loader2 className="animate-spin" />}
+                Add
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {adding && <Separator />}
 
         <ul className="space-y-2">
           {(prompts ?? []).map((prompt) => (
@@ -226,6 +255,7 @@ function splitLabels(value: string): string[] {
 function PromptRow({ prompt }: { prompt: Prompt }) {
   const updatePrompt = useUpdatePrompt()
   const deletePrompt = useDeletePrompt()
+  const [name, setName] = useState(prompt.name)
   const [text, setText] = useState(prompt.text)
   const [tokens, setTokens] = useState(String(prompt.estimated_output_tokens))
   const [maxTokens, setMaxTokens] = useState(String(prompt.max_output_tokens))
@@ -248,6 +278,27 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
         onError: (error) => toast.error(error.message),
       },
     )
+
+  const commitName = () => {
+    const next = name.trim()
+    if (!next || next === prompt.name) {
+      setName(prompt.name)
+      return
+    }
+    updatePrompt.mutate(
+      { promptId: prompt.id, name: next },
+      {
+        onSuccess: () => {
+          setName(next)
+          toast.success(`Renamed ${prompt.name} to ${next}`)
+        },
+        onError: (error) => {
+          setName(prompt.name)
+          toast.error(error.message)
+        },
+      },
+    )
+  }
 
   const commitText = () => {
     const t = text.trim()
@@ -312,7 +363,14 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
   return (
     <li className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate font-medium">{prompt.name}</div>
+        <Input
+          className="font-medium"
+          aria-label={`Name of ${prompt.name}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        />
         <Button
           variant="ghost"
           size="icon"
@@ -320,7 +378,7 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
           disabled={deletePrompt.isPending}
           onClick={() =>
             deletePrompt.mutate(prompt.id, {
-              onSuccess: () => toast.success(`Removed ${prompt.name}`),
+              onSuccess: () => toast.success(`Deleted ${prompt.name}`),
               onError: (error) => toast.error(error.message),
             })
           }
@@ -359,8 +417,7 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
       </div>
       {cannotRun && (
         <p className="text-destructive text-xs">
-          Choose a model, and an effort if the model takes one — this prompt cannot run
-          until then.
+          {choice.model ? "Choose an effort" : "Choose a model"} to use this prompt.
         </p>
       )}
       <div className="flex flex-wrap gap-2">

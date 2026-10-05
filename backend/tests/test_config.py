@@ -48,7 +48,7 @@ def test_interval_minutes_tolerated_alongside_schedule():
 
 
 def test_resend_from_required_when_enabled():
-    with pytest.raises(ConfigError, match="resend_from"):
+    with pytest.raises(ConfigError, match="email sender"):
         parse_settings({"monitoring": {"enabled": True}})
 
 

@@ -92,7 +92,7 @@ export function SearchTab({ channelId }: { channelId: number }) {
 
       {debounced.trim().length < 2 && (
         <p className="text-muted-foreground py-16 text-center">
-          Type at least two characters. Hits link to the video at the spoken moment.
+          Type at least 2 characters. Each hit links to its moment in the video.
         </p>
       )}
 

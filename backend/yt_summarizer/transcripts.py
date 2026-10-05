@@ -16,8 +16,8 @@ import json
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 from yt_dlp.networking.exceptions import RequestError
 
@@ -30,8 +30,17 @@ _RATE_LIMIT_BACKOFF_SECONDS = 20.0
 _TIMESTAMP_WINDOW_SECONDS = 30
 
 
+TranscriptSource = Literal["manual", "auto"]
+
+
 class TranscriptError(Exception):
     """Raised when no transcript could be retrieved for a video."""
+
+
+@dataclass(frozen=True)
+class CaptionTrack:
+    url: str
+    source: TranscriptSource
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,7 @@ class Segment:
 class Transcript:
     text: str
     segments: list[Segment] | None = None
+    source: TranscriptSource | None = None
 
     def rendered(self, *, timestamps: bool) -> str:
         if timestamps and self.segments:
@@ -117,8 +127,8 @@ def _parse_json3(raw: str) -> Transcript:
     )
 
 
-def select_caption_track(info: dict[str, Any], languages: Sequence[str]) -> str | None:
-    """Return the json3 URL of the single best caption track, or None.
+def select_caption_track(info: dict[str, Any], languages: Sequence[str]) -> CaptionTrack | None:
+    """Return the single best caption track (its json3 URL and source), or None.
 
     For each preferred language in order: manual subtitles (exact key, then a
     regional variant like "en-GB") win over automatic captions. Last resort is
@@ -142,12 +152,13 @@ def select_caption_track(info: dict[str, Any], languages: Sequence[str]) -> str 
         return None
 
     for lang in languages:
-        for tracks in (manual, auto):
-            if url := match_language(tracks, lang):
-                return url
+        if url := match_language(manual, lang):
+            return CaptionTrack(url, "manual")
+        if url := match_language(auto, lang):
+            return CaptionTrack(url, "auto")
     for key in auto:
         if key.endswith("-orig") and (url := json3_url(auto, key)):
-            return url
+            return CaptionTrack(url, "auto")
     return None
 
 
@@ -165,9 +176,7 @@ def _download_caption(url: str, video_id: str) -> str:
             )
             time.sleep(_RATE_LIMIT_BACKOFF_SECONDS)
         except RequestError as exc:
-            raise TranscriptError(
-                f"Could not retrieve transcript for {video_id}: {exc}"
-            ) from exc
+            raise TranscriptError(f"Could not download the transcript: {exc}") from exc
     raise AssertionError("unreachable")
 
 
@@ -184,13 +193,13 @@ def fetch_transcript(
     when YouTube keeps answering 429 after a backoff retry.
     """
     if not info:
-        raise TranscriptError(f"Could not retrieve video info for {video_id}")
+        raise TranscriptError("Could not load the video details.")
 
-    url = select_caption_track(info, languages)
-    if url is None:
-        raise TranscriptError(f"No transcript available for video {video_id}")
+    track = select_caption_track(info, languages)
+    if track is None:
+        raise TranscriptError("This video has no transcript.")
 
-    transcript = _parse_json3(_download_caption(url, video_id))
+    transcript = _parse_json3(_download_caption(track.url, video_id))
     if not transcript.text:
-        raise TranscriptError(f"Transcript for video {video_id} is empty")
-    return transcript
+        raise TranscriptError("The transcript is empty.")
+    return replace(transcript, source=track.source)

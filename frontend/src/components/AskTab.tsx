@@ -92,7 +92,7 @@ export function AskTab({ channelId }: { channelId: number }) {
       },
       onError: (error) => {
         if (error instanceof ApiError && error.status === 410) {
-          toast.error("Estimate expired — re-estimating")
+          toast.warning("Estimate expired. Running it again.")
           runEstimate()
           return
         }
@@ -169,8 +169,8 @@ export function AskTab({ channelId }: { channelId: number }) {
             </Badge>
             <Button className="ml-auto" onClick={approve} disabled={askQuestion.isPending}>
               {askQuestion.isPending && <Loader2 className="animate-spin" />}
-              Approve — ask Claude
-              {estimate.cost_usd != null && ` ($${estimate.cost_usd.toFixed(4)})`}
+              Ask Claude
+              {estimate.cost_usd != null && ` · $${estimate.cost_usd.toFixed(4)}`}
             </Button>
           </CardContent>
         </Card>
@@ -182,8 +182,8 @@ export function AskTab({ channelId }: { channelId: number }) {
 
       {!isLoading && (history?.length ?? 0) === 0 && !askQuestion.isPending && (
         <p className="text-muted-foreground py-16 text-center">
-          No questions yet. Answers are built from the mentions, summaries and transcript
-          excerpts in the chosen period, and cite the video they came from.
+          No questions yet. Answers use the summaries, mentions and transcripts of the
+          chosen period, and cite their videos.
         </p>
       )}
 

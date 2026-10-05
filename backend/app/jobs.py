@@ -166,6 +166,7 @@ class JobRegistry:
                     published_at=item.video.published_at,
                     transcript=item.transcript.text,
                     transcript_segments=segments_to_json(item.transcript.segments),
+                    transcript_source=item.transcript.source,
                     mentions=result.mentions,
                     prompt_name=job.prompt_name,
                     model=estimate.settings.model,
@@ -192,7 +193,7 @@ class JobRegistry:
                 for item in job.items:
                     if item.status in ("queued", "processing"):
                         item.status = "failed"
-                        item.error = "Internal error — see server logs"
+                        item.error = "Internal error. See the server logs."
         finally:
             with self._lock:
                 job.status = "done"

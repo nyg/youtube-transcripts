@@ -21,7 +21,7 @@ from yt_summarizer.youtube_client import Video
 
 def _transcript(text: str = "transcript") -> transcripts.Transcript:
     return transcripts.Transcript(
-        text=text, segments=[transcripts.Segment(start_ms=0, text=text)]
+        text=text, segments=[transcripts.Segment(start_ms=0, text=text)], source="auto"
     )
 
 
@@ -159,6 +159,7 @@ def test_no_budget_processes_all(tmp_path, monkeypatch):
     assert result.summarized == 3
     assert result.budget_hit is False
     assert db.processed_ids() == {"v0", "v1", "v2"}
+    assert db.get_summary("v0")["transcript_source"] == "auto"
 
 
 def test_deferred_videos_processed_on_next_cycle_with_headroom(tmp_path, monkeypatch):

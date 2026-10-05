@@ -8,6 +8,7 @@ import { useDeleteSummary, useSummaryDetail } from "@/api/queries"
 import type { Summary } from "@/api/types"
 import { formatDateTime } from "@/lib/datetime"
 import { stanceClass } from "@/lib/stance"
+import { TRANSCRIPT_SOURCES } from "@/lib/transcript"
 import { youtubeAt } from "@/lib/youtube"
 import { SummaryStats } from "@/components/SummaryStats"
 import { Badge } from "@/components/ui/badge"
@@ -75,8 +76,8 @@ export function SummaryCard({ summary }: Props) {
             }
             title={
               confirming
-                ? "Click again to delete — the transcript goes too"
-                : "Delete this summary"
+                ? "Click again to delete the summary and its transcript"
+                : "Delete summary"
             }
             disabled={deleteSummary.isPending}
             onClick={remove}
@@ -97,6 +98,11 @@ export function SummaryCard({ summary }: Props) {
             <Badge variant="outline">
               {summary.tokens_input.toLocaleString()} in /{" "}
               {summary.tokens_output.toLocaleString()} out
+            </Badge>
+          )}
+          {summary.transcript_source && (
+            <Badge variant="outline" title={TRANSCRIPT_SOURCES[summary.transcript_source].hint}>
+              {TRANSCRIPT_SOURCES[summary.transcript_source].label}
             </Badge>
           )}
         </CardDescription>

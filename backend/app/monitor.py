@@ -300,6 +300,7 @@ class ChannelMonitor:
                     published_at=video.published_at,
                     transcript=transcript.text,
                     transcript_segments=segments_to_json(transcript.segments),
+                    transcript_source=transcript.source,
                     mentions=summary.mentions,
                     prompt_name=prompt_name,
                     model=settings.model,
@@ -430,13 +431,13 @@ class ChannelMonitor:
         footer += "</p>"
         if result.budget_hit:
             footer += (
-                '<p style="font-size:12px;color:#a00">&#9888; Daily budget reached — '
-                "remaining new videos were deferred and will be processed after midnight UTC.</p>"
+                '<p style="font-size:12px;color:#a00">&#9888; Daily budget reached. '
+                "The remaining videos will be summarized after midnight UTC.</p>"
             )
         if result.failed:
             footer += (
                 f'<p style="font-size:12px;color:#a00">{result.failed} video(s) '
-                "failed to summarize — see server logs.</p>"
+                "could not be summarized. See the server logs.</p>"
             )
         return (
             '<div style="font-family:system-ui,-apple-system,sans-serif;'

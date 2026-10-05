@@ -129,6 +129,8 @@ class Database:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN channel_id INTEGER")
             if "transcript_segments" not in columns:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_segments TEXT")
+            if "transcript_source" not in columns:
+                conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_source TEXT")
             for column, kind in _RUN_STATS_COLUMNS.items():
                 if column not in columns:
                     conn.execute(f"ALTER TABLE video_summaries ADD COLUMN {column} {kind}")
@@ -310,6 +312,7 @@ class Database:
         self,
         prompt_id: int,
         *,
+        name: str | None = None,
         text: str | None = None,
         estimated_output_tokens: int | None = None,
         entity_kind: str | None = None,
@@ -318,11 +321,16 @@ class Database:
         effort: str | None = None,
         max_output_tokens: int | None = None,
     ) -> sqlite3.Row | None:
-        """Update the given fields of a prompt (its name is immutable, since channels
-        reference it by name). Returns the updated row, or None if missing.
-"""
+        """Update the given fields of a prompt. Returns the updated row, or None if missing.
+
+        A new name is carried over to the channels, summaries and mentions that
+        reference the prompt by name. Raises sqlite3.IntegrityError when taken.
+        """
         sets: list[str] = []
         params: list[object] = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
         if text is not None:
             sets.append("text = ?")
             params.append(text)
@@ -347,11 +355,18 @@ class Database:
             return self.get_prompt(prompt_id)
         params.append(prompt_id)
         with self._connect() as conn:
-            cursor = conn.execute(
-                f"UPDATE prompts SET {', '.join(sets)} WHERE id = ?", params
-            )
-            if cursor.rowcount == 0:
+            previous = conn.execute(
+                "SELECT name FROM prompts WHERE id = ?", (prompt_id,)
+            ).fetchone()
+            if previous is None:
                 return None
+            conn.execute(f"UPDATE prompts SET {', '.join(sets)} WHERE id = ?", params)
+            if name is not None and name != previous["name"]:
+                for table in ("channels", "video_summaries", "mentions"):
+                    conn.execute(
+                        f"UPDATE {table} SET prompt_name = ? WHERE prompt_name = ?",
+                        (name, previous["name"]),
+                    )
             return conn.execute(
                 "SELECT * FROM prompts WHERE id = ?", (prompt_id,)
             ).fetchone()
@@ -415,6 +430,7 @@ class Database:
         cost_usd: float | None,
         channel_id: int | None = None,
         transcript_segments: str | None = None,
+        transcript_source: str | None = None,
         mentions: Sequence[Mention] = (),
         effort: str | None = None,
         max_output_tokens: int | None = None,
@@ -430,10 +446,10 @@ class Database:
                 INSERT INTO video_summaries (
                     video_id, title, url, published_at, transcript, prompt_name,
                     model, ai_response, tokens_input, tokens_output, cost_usd,
-                    processed_at, channel_id, transcript_segments,
+                    processed_at, channel_id, transcript_segments, transcript_source,
                     effort, max_output_tokens, estimated_output_tokens,
                     tokens_thinking, stop_reason, duration_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                     title=excluded.title,
                     url=excluded.url,
@@ -448,6 +464,7 @@ class Database:
                     processed_at=excluded.processed_at,
                     channel_id=excluded.channel_id,
                     transcript_segments=excluded.transcript_segments,
+                    transcript_source=excluded.transcript_source,
                     effort=excluded.effort,
                     max_output_tokens=excluded.max_output_tokens,
                     estimated_output_tokens=excluded.estimated_output_tokens,
@@ -470,6 +487,7 @@ class Database:
                     processed_at,
                     channel_id,
                     transcript_segments,
+                    transcript_source,
                     effort,
                     max_output_tokens,
                     estimated_output_tokens,

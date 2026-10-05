@@ -42,9 +42,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
         state.catalog, cfg.pricing, body.model, body.effort, cfg.ask.max_output_tokens
     )
     if settings is None:
-        raise HTTPException(
-            status_code=422, detail="Choose a model, and an effort if the model takes one"
-        )
+        raise HTTPException(status_code=422, detail="Choose a model and an effort")
 
     context = analysis.build_context(
         state.db,
@@ -57,7 +55,7 @@ def estimate_question(body: QuestionRequest, request: Request) -> QuestionEstima
     if not context.sources:
         raise HTTPException(
             status_code=422,
-            detail="Nothing to answer from — no summaries or mentions in this period.",
+            detail="No summaries or mentions in this period.",
         )
 
     estimate = state.summarizer.estimate_answer(
@@ -97,9 +95,7 @@ def ask_question(body: QuestionAsk, request: Request) -> QuestionOut:
     state = request.app.state
     prepared = state.questions.pop(body.estimate_id)
     if prepared is None:
-        raise HTTPException(
-            status_code=410, detail="This estimate expired — run the estimate again."
-        )
+        raise HTTPException(status_code=410, detail="This estimate expired. Run it again.")
 
     result = state.summarizer.answer(prepared.settings, prepared.question, prepared.context)
     sources = [vars(source) for source in prepared.sources]

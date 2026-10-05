@@ -35,42 +35,43 @@ const YOUTUBE_FIELDS: Field[] = [
     label: "Seconds between YouTube requests",
     kind: "float",
     min: 0,
-    hint: "Raise it when YouTube answers HTTP 429.",
+    hint: "Raise it when YouTube rate limits you.",
   },
   {
     path: "transcript_languages",
     label: "Transcript languages",
     kind: "text",
-    hint: "Comma-separated, in order of preference.",
+    hint: "Comma-separated, preferred first.",
   },
   {
     path: "cookies_file",
     label: "Cookies file",
     kind: "text",
-    hint: "Optional path on the server to Netscape-format cookies of a logged-in session.",
+    hint: "Optional. Server path to a Netscape-format cookies file of a logged-in session.",
   },
 ]
 
 const ASK_FIELDS: Field[] = [
   {
     path: "ask.max_context_tokens",
-    label: "Context ceiling (tokens)",
+    label: "Max context (tokens)",
     kind: "int",
     min: 1000,
-    hint: "Most mentions, summaries and excerpts sent with a question. More costs more.",
+    hint: "Limits the mentions, summaries and excerpts sent with a question. More costs more.",
   },
   {
     path: "ask.estimated_output_tokens",
-    label: "Assumed answer length (tokens)",
+    label: "Est. output (tokens)",
     kind: "int",
     min: 1,
+    hint: "The answer length assumed for cost estimates.",
   },
   {
     path: "ask.max_output_tokens",
     label: "Max output (tokens)",
     kind: "int",
     min: 1,
-    hint: "Caps thinking plus answer.",
+    hint: "Limits thinking plus answer.",
   },
 ]
 
@@ -79,12 +80,12 @@ const MONITORING_FIELDS: Field[] = [
     path: "monitoring.schedule",
     label: "Schedule",
     kind: "text",
-    hint: "Cron expression in the server's local time, e.g. 0 8,20 * * * for 08:00 and 20:00.",
+    hint: "Cron expression in server time. Example: 0 8,20 * * * runs at 08:00 and 20:00.",
     wide: true,
   },
   {
     path: "monitoring.max_videos_check",
-    label: "Recent videos checked per channel",
+    label: "Videos checked per channel",
     kind: "int",
     min: 1,
   },
@@ -100,10 +101,10 @@ const MONITORING_FIELDS: Field[] = [
     label: "Daily budget (USD)",
     kind: "float",
     min: 0,
-    hint: "0 = unlimited.",
+    hint: "0 = no limit.",
   },
-  { path: "monitoring.subject_prefix", label: "Digest subject prefix", kind: "text" },
-  { path: "monitoring.resend_from", label: "Digest sender", kind: "text", wide: true },
+  { path: "monitoring.subject_prefix", label: "Email subject prefix", kind: "text" },
+  { path: "monitoring.resend_from", label: "Email sender", kind: "text", wide: true },
 ]
 
 const priceField = (family: string, side: "input" | "output"): Field => ({
@@ -186,7 +187,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         {error && (
-          <p className="text-destructive">Could not load the settings: {error.message}</p>
+          <p className="text-destructive">Could not load settings: {error.message}</p>
         )}
         {settings && <SettingsForm settings={settings} onDone={() => onOpenChange(false)} />}
       </DialogContent>
@@ -254,8 +255,7 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
         <div className="grid pt-2">
           <Panel value="models">
             <p className="text-muted-foreground text-xs sm:col-span-2">
-              Prices are in USD per million tokens. Update them manually when a model
-              changes.
+              Prices in USD per million tokens. Update them when a model changes.
             </p>
             <div className="space-y-2 sm:col-span-2">
               <div className="flex gap-x-3 text-xs font-medium" aria-hidden>
@@ -286,7 +286,7 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
                     </div>
                     {!model.price_confirmed && (
                       <p className="text-destructive text-xs">
-                        New model — check its price, then save.
+                        New model. Check its price, then save.
                       </p>
                     )}
                   </li>
@@ -321,7 +321,7 @@ function SettingsForm({ settings, onDone }: { settings: Settings; onDone: () => 
           <Panel value="monitoring">
             <Toggle
               path="monitoring.enabled"
-              label="Check channels for new videos automatically"
+              label="Summarize new videos automatically"
               draft={draft}
               onChange={set}
             />

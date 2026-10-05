@@ -71,7 +71,7 @@ def test_job_saves_the_summary_with_its_run_stats(tmp_path):
         items={
             "v0": PreparedVideo(
                 video=video,
-                transcript=Transcript(text="words"),
+                transcript=Transcript(text="words", source="manual"),
                 estimate=CostEstimate(
                     input_tokens=1000, estimated_output_tokens=2500, cost_usd=0.2
                 ),
@@ -89,3 +89,4 @@ def test_job_saves_the_summary_with_its_run_stats(tmp_path):
     assert (row["model"], row["effort"], row["max_output_tokens"]) == ("m", "xhigh", 500)
     assert (row["estimated_output_tokens"], row["tokens_thinking"]) == (2500, 320)
     assert (row["stop_reason"], row["duration_ms"]) == ("max_tokens", 900)
+    assert row["transcript_source"] == "manual"
