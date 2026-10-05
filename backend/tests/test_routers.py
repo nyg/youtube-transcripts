@@ -62,7 +62,6 @@ def test_prompts_crud_api(tmp_path):
     duplicate = client.post("/api/prompts", json={"name": "sum", "text": "x", **SETTINGS})
     assert duplicate.status_code == 409
 
-    # Patch text; name is immutable so it isn't accepted for change.
     r = client.patch(f"/api/prompts/{pid}", json={"text": "New."})
     assert r.status_code == 200 and r.json()["text"] == "New."
 
@@ -136,6 +135,39 @@ def test_patch_sets_model_effort_and_cap_on_an_older_prompt(tmp_path):
         "xhigh",
         64_000,
     )
+
+
+def test_renaming_a_prompt_follows_through_to_what_references_it(tmp_path):
+    db = Database(tmp_path / "v.db")
+    prompt = db.add_prompt("old", "sys", 2000, **SETTINGS)
+    channel = db.add_channel("@chan", "Chan", "old")
+    db.save_summary(
+        video_id="v0", title="T", url="u", published_at=None, transcript="x",
+        prompt_name="old", model="m", ai_response="r", tokens_input=1, tokens_output=2,
+        cost_usd=0.1, channel_id=channel["id"],
+        mentions=[Mention("Bitcoin", "bullish", "high", "why", "quote", None)],
+    )
+    client = _prompts_client(db)
+
+    r = client.patch(f"/api/prompts/{prompt['id']}", json={"name": "  new  "})
+
+    assert r.status_code == 200 and r.json()["name"] == "new"
+    assert db.get_channel(channel["id"])["prompt_name"] == "new"
+    assert db.get_summary("v0")["prompt_name"] == "new"
+    assert db.known_entities("new") == ["Bitcoin"]
+
+
+def test_renaming_a_prompt_to_a_taken_or_blank_name_is_rejected(tmp_path):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("taken", "sys", 2000, **SETTINGS)
+    prompt = db.add_prompt("mine", "sys", 2000, **SETTINGS)
+    client = _prompts_client(db)
+
+    taken = client.patch(f"/api/prompts/{prompt['id']}", json={"name": "taken"})
+    blank = client.patch(f"/api/prompts/{prompt['id']}", json={"name": "   "})
+
+    assert (taken.status_code, blank.status_code) == (409, 422)
+    assert db.get_prompt(prompt["id"])["name"] == "mine"
 
 
 def test_delete_prompt_blocked_when_in_use(tmp_path):

@@ -312,6 +312,7 @@ class Database:
         self,
         prompt_id: int,
         *,
+        name: str | None = None,
         text: str | None = None,
         estimated_output_tokens: int | None = None,
         entity_kind: str | None = None,
@@ -320,11 +321,16 @@ class Database:
         effort: str | None = None,
         max_output_tokens: int | None = None,
     ) -> sqlite3.Row | None:
-        """Update the given fields of a prompt (its name is immutable, since channels
-        reference it by name). Returns the updated row, or None if missing.
-"""
+        """Update the given fields of a prompt. Returns the updated row, or None if missing.
+
+        A new name is carried over to the channels, summaries and mentions that
+        reference the prompt by name. Raises sqlite3.IntegrityError when taken.
+        """
         sets: list[str] = []
         params: list[object] = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
         if text is not None:
             sets.append("text = ?")
             params.append(text)
@@ -349,11 +355,18 @@ class Database:
             return self.get_prompt(prompt_id)
         params.append(prompt_id)
         with self._connect() as conn:
-            cursor = conn.execute(
-                f"UPDATE prompts SET {', '.join(sets)} WHERE id = ?", params
-            )
-            if cursor.rowcount == 0:
+            previous = conn.execute(
+                "SELECT name FROM prompts WHERE id = ?", (prompt_id,)
+            ).fetchone()
+            if previous is None:
                 return None
+            conn.execute(f"UPDATE prompts SET {', '.join(sets)} WHERE id = ?", params)
+            if name is not None and name != previous["name"]:
+                for table in ("channels", "video_summaries", "mentions"):
+                    conn.execute(
+                        f"UPDATE {table} SET prompt_name = ? WHERE prompt_name = ?",
+                        (name, previous["name"]),
+                    )
             return conn.execute(
                 "SELECT * FROM prompts WHERE id = ?", (prompt_id,)
             ).fetchone()

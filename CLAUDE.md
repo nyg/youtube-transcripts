@@ -106,8 +106,9 @@ validated against the `prompts` table) and carries its own digest recipients
 (`channels.notify_emails`, JSON). The prompt is required and drives **both** the
 manual estimate flow (`routers/estimates.py` resolves it from the channel — there
 is no per-run prompt picker) and the monitor. A prompt can't be deleted while a
-channel uses it (`Database.channels_using_prompt` → 409). Prompt names are
-immutable (channels reference them by name). On first run, `main.py`
+channel uses it (`Database.channels_using_prompt` → 409). Channels, summaries
+and mentions reference a prompt by name, so renaming one (`Database.update_prompt`)
+renames it in all three in the same transaction. On first run, `main.py`
 `_bootstrap_prompts` imports any legacy `prompts`/`active_prompt` still in
 `config.yaml` (back-filling channels that had no prompt), else seeds one starter
 prompt so a fresh install can add a channel right away.

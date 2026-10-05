@@ -37,7 +37,8 @@ class PromptIn(BaseModel):
 
 
 class PromptPatch(BaseModel):
-    # Name is immutable (channels reference a prompt by name). Absent = no change.
+    # Absent = no change.
+    name: str | None = Field(default=None, min_length=1)
     text: str | None = Field(default=None, min_length=1)
     estimated_output_tokens: int | None = Field(default=None, ge=1)
     model: str | None = Field(default=None, min_length=1)
