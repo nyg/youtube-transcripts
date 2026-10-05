@@ -96,8 +96,9 @@ export function MentionsTab({ channelId }: { channelId: number }) {
 
       {!isLoading && rows.length === 0 && (
         <p className="text-muted-foreground py-16 text-center">
-          No mentions yet. Give the channel’s prompt an entity kind and stance labels in
-          “Manage prompts”, then process (or reprocess) videos.
+          {entities && entities.length > 0
+            ? `Nothing matches “${filter.trim()}”.`
+            : "No mentions in this period. To track mentions, add stance labels to the channel’s prompt in Prompts, then summarize new videos or redo old ones."}
         </p>
       )}
 
@@ -107,7 +108,7 @@ export function MentionsTab({ channelId }: { channelId: number }) {
             <TableRow>
               <TableHead>Entity</TableHead>
               <TableHead>Latest stance</TableHead>
-              <TableHead>Previously</TableHead>
+              <TableHead>Previous stance</TableHead>
               <TableHead>Last mentioned</TableHead>
               <TableHead className="text-right">Videos</TableHead>
             </TableRow>
@@ -127,16 +128,8 @@ export function MentionsTab({ channelId }: { channelId: number }) {
                         {entity.latest_stance}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {entity.previous_stance ? (
-                        <span className="text-muted-foreground flex items-center gap-1 text-sm">
-                          {entity.previous_stance}
-                          <span aria-hidden>→</span>
-                          <span className="text-foreground">changed</span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">unchanged</span>
-                      )}
+                    <TableCell className="text-muted-foreground text-sm">
+                      {entity.previous_stance ?? "Same"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatPublished(entity.latest_at)}

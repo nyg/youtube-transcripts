@@ -9,19 +9,21 @@ from ..schemas import JobCreate, JobCreated, JobOut
 
 router = APIRouter(prefix="/api/jobs")
 
+_BUSY_DETAIL = "Another job is running. Try again when it is done."
+
 
 @router.post("", response_model=JobCreated, status_code=201)
 def create_job(body: JobCreate, request: Request) -> JobCreated:
     state = request.app.state
 
     if state.jobs.has_running_job():
-        raise HTTPException(status_code=409, detail="A summarization job is already running")
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
 
     estimate = state.estimates.pop(body.estimate_id)
     if estimate is None:
         raise HTTPException(
             status_code=410,
-            detail="This estimate has expired or was already used — please re-run it",
+            detail="This estimate expired. Run it again.",
         )
 
     video_ids = body.video_ids if body.video_ids is not None else list(estimate.items)
@@ -31,7 +33,7 @@ def create_job(body: JobCreate, request: Request) -> JobCreated:
         detail = (
             f"Video ids not part of the estimate: {', '.join(unknown)}"
             if unknown
-            else "No videos to process"
+            else "No videos to summarize"
         )
         raise HTTPException(status_code=422, detail=detail)
 
@@ -39,7 +41,7 @@ def create_job(body: JobCreate, request: Request) -> JobCreated:
         job = state.jobs.start(estimate, video_ids, state.db, state.summarizer)
     except JobConflictError:
         state.estimates.restore(estimate)
-        raise HTTPException(status_code=409, detail="A summarization job is already running")
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
     return JobCreated(job_id=job.job_id)
 
 

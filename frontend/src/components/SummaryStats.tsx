@@ -55,7 +55,7 @@ export function SummaryStats({ summary }: { summary: Summary }) {
       {output != null && cap != null && (
         <Stat label="Output cap" warn={truncated}>
           {truncated
-            ? `hit the cap of ${count(cap)} — response cut off`
+            ? `response cut off at ${count(cap)}`
             : `${percent(output, cap)} of ${count(cap)} used`}
         </Stat>
       )}

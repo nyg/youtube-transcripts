@@ -83,22 +83,16 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Manage prompts</DialogTitle>
+          <DialogTitle>Prompts</DialogTitle>
           <DialogDescription>
-            A prompt is the instruction sent to Claude to summarize a video.
-            Channels each choose one. Every prompt runs on the newest model of
-            the family you choose for it, at the effort you choose when that
-            model takes one. “Est. output” is the assumed output length used
-            for cost estimates; “Max output” is the hard cap on thinking plus
-            response. Give a prompt an entity kind and stance labels to also
-            extract mentions (entity, stance, quote) into the Mentions tab;
-            leave the labels empty for a summary only.
+            A prompt tells Claude how to summarize a video. Each channel uses
+            one. It runs on the newest model of the family you choose.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
           <Input
-            placeholder="Prompt name (e.g. crypto-summary)"
+            placeholder="Name, e.g. crypto-summary"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={addPrompt.isPending}
@@ -132,24 +126,32 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
               disabled={addPrompt.isPending}
             />
           </div>
+          <p className="text-muted-foreground text-xs">
+            Est. output is the length assumed for cost estimates. Max output
+            limits thinking plus summary.
+          </p>
           <div className="flex flex-wrap gap-2">
             <Input
               className="w-40"
-              placeholder="Entity kind (e.g. coin)"
+              placeholder="Entity kind, e.g. coin"
               value={entityKind}
               onChange={(e) => setEntityKind(e.target.value)}
               disabled={addPrompt.isPending}
             />
             <Input
               className="min-w-40 flex-1"
-              placeholder="Stance labels, comma-separated (e.g. bullish, bearish, neutral)"
+              placeholder="Stance labels, e.g. bullish, bearish, neutral"
               value={labels}
               onChange={(e) => setLabels(e.target.value)}
               disabled={addPrompt.isPending}
             />
           </div>
+          <p className="text-muted-foreground text-xs">
+            Optional. With stance labels, Claude also extracts mentions: each
+            entity, its stance and a quote.
+          </p>
           <Textarea
-            placeholder="You are given the full transcript of a YouTube video. Summarize…"
+            placeholder="Instructions, e.g. Summarize this video transcript in a few short paragraphs."
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={addPrompt.isPending}
@@ -157,7 +159,7 @@ export function PromptManagerDialog({ open, onOpenChange }: Props) {
           <div className="flex justify-end">
             <Button onClick={submit} disabled={addPrompt.isPending || !canAdd}>
               {addPrompt.isPending && <Loader2 className="animate-spin" />}
-              Add prompt
+              Add
             </Button>
           </div>
         </div>
@@ -320,7 +322,7 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
           disabled={deletePrompt.isPending}
           onClick={() =>
             deletePrompt.mutate(prompt.id, {
-              onSuccess: () => toast.success(`Removed ${prompt.name}`),
+              onSuccess: () => toast.success(`Deleted ${prompt.name}`),
               onError: (error) => toast.error(error.message),
             })
           }
@@ -359,8 +361,7 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
       </div>
       {cannotRun && (
         <p className="text-destructive text-xs">
-          Choose a model, and an effort if the model takes one — this prompt cannot run
-          until then.
+          {choice.model ? "Choose an effort" : "Choose a model"} to use this prompt.
         </p>
       )}
       <div className="flex flex-wrap gap-2">

@@ -13,12 +13,13 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.estimates import EstimateStore
 from app.routers import estimates, mentions, meta, prompts, questions, search, summaries
 from app.routers import settings as settings_router
 from app.settings import SettingsStore
-from yt_summarizer import youtube_client
+from yt_summarizer import transcripts, youtube_client
 from yt_summarizer.config import DEFAULT_PRICING, parse_settings
-from yt_summarizer.claude_client import ModelSettings, SummarizerError
+from yt_summarizer.claude_client import CostEstimate, ModelSettings, SummarizerError
 from yt_summarizer.database import Database
 from yt_summarizer.mentions import Mention
 from yt_summarizer.models import EFFORT_LEVELS, ClaudeModel, ModelCatalog
@@ -182,7 +183,43 @@ def test_estimate_422_when_prompt_has_no_model_or_effort(tmp_path):
     r = client.post("/api/estimates", json={"channel_id": ch["id"], "video_ids": ["v0"]})
 
     assert r.status_code == 422
-    assert "no model or effort" in r.json()["detail"]
+    assert "needs a model and an effort" in r.json()["detail"]
+
+
+class _FakeEstimator:
+    def estimate(self, settings, prompt, transcript, estimated_output_tokens, extraction=None):
+        return CostEstimate(
+            input_tokens=10, estimated_output_tokens=estimated_output_tokens, cost_usd=0.01
+        )
+
+
+def test_estimate_reports_where_each_transcript_comes_from(tmp_path, monkeypatch):
+    db = Database(tmp_path / "v.db")
+    db.add_prompt("p", "sys", 2000, **SETTINGS)
+    ch = db.add_channel("@chan", "Chan", "p")
+    db.save_summary(
+        video_id="stored", title="T", url="u", published_at=None, transcript="x",
+        prompt_name="p", model="m", ai_response="r", tokens_input=1,
+        tokens_output=2, cost_usd=0.1, channel_id=ch["id"], transcript_source="manual",
+    )
+    monkeypatch.setattr(youtube_client, "fetch_video_details", lambda video: (video, {}))
+    monkeypatch.setattr(
+        transcripts,
+        "fetch_transcript",
+        lambda info, video_id, languages: transcripts.Transcript(text="words", source="auto"),
+    )
+    app = _app(db)
+    app.state.summarizer = _FakeEstimator()
+    app.state.estimates = EstimateStore()
+    app.include_router(estimates.router)
+
+    r = TestClient(app).post(
+        "/api/estimates", json={"channel_id": ch["id"], "video_ids": ["fresh", "stored"]}
+    )
+
+    assert r.status_code == 200
+    sources = {item["video_id"]: item["transcript_source"] for item in r.json()["items"]}
+    assert sources == {"fresh": "auto", "stored": "manual"}
 
 
 def _summaries_client(db: Database) -> TestClient:
@@ -208,7 +245,7 @@ def test_summaries_expose_run_stats_and_tolerate_their_absence(tmp_path):
         prompt_name="p", model="m", ai_response="r", tokens_input=1000,
         tokens_output=500, cost_usd=0.1, channel_id=None, effort="medium",
         max_output_tokens=8192, estimated_output_tokens=2000, tokens_thinking=300,
-        stop_reason="end_turn", duration_ms=1500,
+        stop_reason="end_turn", duration_ms=1500, transcript_source="auto",
     )
     client = _summaries_client(db)
 
@@ -218,6 +255,8 @@ def test_summaries_expose_run_stats_and_tolerate_their_absence(tmp_path):
     assert (listed["new"]["tokens_thinking"], listed["new"]["max_output_tokens"]) == (300, 8192)
     assert (listed["new"]["estimated_output_tokens"], listed["new"]["duration_ms"]) == (2000, 1500)
     assert listed["old"]["effort"] is None and listed["old"]["tokens_thinking"] is None
+    assert listed["old"]["transcript_source"] is None
+    assert listed["new"]["transcript_source"] == "auto"
     assert client.get("/api/summaries/new").json()["stop_reason"] == "end_turn"
 
 
@@ -435,7 +474,7 @@ def test_question_estimate_422_without_sources(tmp_path):
     client = _questions_client(Database(tmp_path / "v.db"), _FakeAnswerer())
     r = client.post("/api/questions/estimate", json={"question": "anything?", **SETTINGS})
     assert r.status_code == 422
-    assert "Nothing to answer from" in r.json()["detail"]
+    assert "No summaries or mentions" in r.json()["detail"]
 
 
 def test_question_estimate_requires_a_known_model_and_its_effort(tmp_path):
@@ -572,7 +611,7 @@ def test_saved_settings_are_stored_and_applied(tmp_path, monkeypatch):
     "section,field,value,message",
     [
         ("monitoring", "schedule", "every hour", "not a valid cron expression"),
-        ("monitoring", "enabled", True, "resend_from"),
+        ("monitoring", "enabled", True, "email sender"),
         ("monitoring", "max_videos_check", 0, "max_videos_check"),
         ("ask", "max_context_tokens", 10, "max_context_tokens"),
     ],

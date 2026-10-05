@@ -129,6 +129,8 @@ class Database:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN channel_id INTEGER")
             if "transcript_segments" not in columns:
                 conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_segments TEXT")
+            if "transcript_source" not in columns:
+                conn.execute("ALTER TABLE video_summaries ADD COLUMN transcript_source TEXT")
             for column, kind in _RUN_STATS_COLUMNS.items():
                 if column not in columns:
                     conn.execute(f"ALTER TABLE video_summaries ADD COLUMN {column} {kind}")
@@ -415,6 +417,7 @@ class Database:
         cost_usd: float | None,
         channel_id: int | None = None,
         transcript_segments: str | None = None,
+        transcript_source: str | None = None,
         mentions: Sequence[Mention] = (),
         effort: str | None = None,
         max_output_tokens: int | None = None,
@@ -430,10 +433,10 @@ class Database:
                 INSERT INTO video_summaries (
                     video_id, title, url, published_at, transcript, prompt_name,
                     model, ai_response, tokens_input, tokens_output, cost_usd,
-                    processed_at, channel_id, transcript_segments,
+                    processed_at, channel_id, transcript_segments, transcript_source,
                     effort, max_output_tokens, estimated_output_tokens,
                     tokens_thinking, stop_reason, duration_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                     title=excluded.title,
                     url=excluded.url,
@@ -448,6 +451,7 @@ class Database:
                     processed_at=excluded.processed_at,
                     channel_id=excluded.channel_id,
                     transcript_segments=excluded.transcript_segments,
+                    transcript_source=excluded.transcript_source,
                     effort=excluded.effort,
                     max_output_tokens=excluded.max_output_tokens,
                     estimated_output_tokens=excluded.estimated_output_tokens,
@@ -470,6 +474,7 @@ class Database:
                     processed_at,
                     channel_id,
                     transcript_segments,
+                    transcript_source,
                     effort,
                     max_output_tokens,
                     estimated_output_tokens,

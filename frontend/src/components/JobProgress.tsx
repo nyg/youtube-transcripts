@@ -27,13 +27,13 @@ function StatusBadge({ item }: { item: JobItem }) {
       return (
         <Badge>
           <Loader2 className="animate-spin" />
-          Processing
+          Summarizing
         </Badge>
       )
     case "done":
       return (
         <Badge variant="outline" className="border-green-600 text-green-600">
-          Done{item.cost_usd != null && ` — $${item.cost_usd.toFixed(4)}`}
+          Done{item.cost_usd != null && ` · $${item.cost_usd.toFixed(4)}`}
         </Badge>
       )
     case "failed":
@@ -52,7 +52,7 @@ export function JobProgress({ jobId, onDismiss }: Props) {
       const failed = job.items.filter((item) => item.status === "failed").length
       const done = job.items.length - failed
       const message = `Summarized ${done} video${done === 1 ? "" : "s"} for $${job.total_cost_usd.toFixed(4)}`
-      if (failed > 0) toast.warning(`${message} — ${failed} failed`)
+      if (failed > 0) toast.warning(`${message}, ${failed} failed`)
       else toast.success(message)
       queryClient.invalidateQueries({ queryKey: ["videos"] })
       queryClient.invalidateQueries({ queryKey: ["summaries"] })
@@ -67,7 +67,7 @@ export function JobProgress({ jobId, onDismiss }: Props) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>
-          {job.status === "running" ? "Summarizing…" : "Summarization complete"}
+          {job.status === "running" ? "Summarizing…" : "Summaries ready"}
         </CardTitle>
         {job.status === "done" && (
           <Button variant="outline" size="sm" onClick={onDismiss}>

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from yt_summarizer.config import DEFAULT_MAX_OUTPUT_TOKENS
 from yt_summarizer.models import Effort
+from yt_summarizer.transcripts import TranscriptSource
 
 MAX_STANCE_LABELS = 20
 
@@ -114,6 +115,7 @@ class EstimateItemOut(BaseModel):
     url: str
     status: Literal["ok", "no_transcript"]
     detail: str | None = None
+    transcript_source: TranscriptSource | None = None
     input_tokens: int | None = None
     estimated_output_tokens: int | None = None
     cost_usd: float | None = None
@@ -259,6 +261,7 @@ class SummaryOut(BaseModel):
     cost_usd: float | None
     processed_at: str
     channel_id: int | None
+    transcript_source: TranscriptSource | None = None
     mentions: list[MentionOut] = []
     # How the summary was produced; None on rows saved before these were recorded.
     effort: str | None = None

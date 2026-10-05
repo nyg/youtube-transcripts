@@ -21,7 +21,7 @@ def run_now(request: Request) -> MonitorRunOut:
     if state.jobs.has_running_job():
         return MonitorRunOut(
             started=False,
-            detail="A summarization job or monitor cycle is already running — try again shortly.",
+            detail="Another job is running. Try again when it is done.",
         )
     state.monitor.trigger_async()
     return MonitorRunOut(started=True, detail="Monitor cycle started.")

@@ -21,7 +21,7 @@ export function SummaryList({ channelId }: Props) {
 
       {summaries && summaries.length === 0 && (
         <p className="text-muted-foreground py-16 text-center">
-          No summaries yet — process some videos first.
+          No summaries yet. Summarize videos in the Videos tab.
         </p>
       )}
 

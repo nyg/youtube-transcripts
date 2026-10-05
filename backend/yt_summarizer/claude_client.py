@@ -71,26 +71,25 @@ def _api_errors(model: str):
         yield
     except anthropic.AuthenticationError as exc:
         raise SummarizerError(
-            "Anthropic authentication failed — set ANTHROPIC_API_KEY in .env"
+            "Anthropic rejected the API key. Check ANTHROPIC_API_KEY in .env."
         ) from exc
     except anthropic.NotFoundError as exc:
         raise SummarizerError(
-            f"Unknown model {model!r} — refresh the model list in Settings"
+            f"Unknown model {model!r}. Check for new models in Settings."
         ) from exc
     except anthropic.RateLimitError as exc:
         raise SummarizerError(
-            "Rate limited by the Anthropic API — wait a moment and retry"
+            "Anthropic is rate limiting requests. Retry in a moment."
         ) from exc
     except anthropic.APIStatusError as exc:
         raise SummarizerError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
     except anthropic.APIConnectionError as exc:
-        raise SummarizerError("Could not reach the Anthropic API — check your network") from exc
+        raise SummarizerError("Could not reach the Anthropic API. Check your network.") from exc
     except TypeError as exc:
         # The SDK raises TypeError when no credentials are configured at all.
         if "authentication" in str(exc).lower():
             raise SummarizerError(
-                "No Anthropic credentials found — copy .env.example to .env "
-                "and set ANTHROPIC_API_KEY"
+                "No Anthropic API key found. Set ANTHROPIC_API_KEY in .env."
             ) from exc
         raise
 
@@ -333,13 +332,12 @@ class ClaudeSummarizer:
         duration_ms = round((time.monotonic() - started) * 1000)
 
         if response.stop_reason == "refusal":
-            raise SummarizerError("Claude declined to process this transcript (stop_reason=refusal)")
+            raise SummarizerError("Claude declined to summarize this transcript.")
         if response.stop_reason == "max_tokens":
             if extraction is not None:
                 raise SummarizerError(
-                    f"Response hit the max output tokens limit ({settings.max_output_tokens}), "
-                    "so the extracted JSON is truncated — raise the prompt's max output "
-                    "tokens or lower its effort"
+                    f"The response was cut off at {settings.max_output_tokens} tokens, so its "
+                    "mentions are unusable. Raise the prompt's max output or lower its effort."
                 )
             log.warning(
                 "Response hit the max output tokens limit (%d) and may be truncated — "
@@ -406,7 +404,7 @@ class ClaudeSummarizer:
                 response = stream.get_final_message()
 
         if response.stop_reason == "refusal":
-            raise SummarizerError("Claude declined to answer this question (stop_reason=refusal)")
+            raise SummarizerError("Claude declined to answer this question.")
 
         text = "".join(block.text for block in response.content if block.type == "text").strip()
         if not text:

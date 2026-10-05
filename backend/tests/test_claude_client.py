@@ -177,7 +177,7 @@ def test_unknown_stance_raises():
 
 def test_truncated_extraction_raises_instead_of_warning():
     summarizer = _summarizer(_payload()[:40], stop_reason="max_tokens")
-    with pytest.raises(SummarizerError, match="max output tokens"):
+    with pytest.raises(SummarizerError, match="cut off"):
         summarizer.summarize(SETTINGS, "system", _transcript(), _extraction())
 
 

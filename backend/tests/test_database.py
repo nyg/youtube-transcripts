@@ -292,9 +292,11 @@ def test_transcript_segments_round_trip(tmp_path):
         tokens_output=1,
         cost_usd=0.0,
         transcript_segments=segments_to_json(segments),
+        transcript_source="auto",
     )
     row = db.get_summary("v0")
     assert segments_from_json(row["transcript_segments"]) == segments
+    assert row["transcript_source"] == "auto"
 
 
 # --- full-text search --------------------------------------------------------
@@ -416,6 +418,7 @@ def test_summaries_from_before_run_stats_get_the_columns(tmp_path):
 
     assert row is not None
     assert (row["effort"], row["tokens_thinking"], row["duration_ms"]) == (None, None, None)
+    assert row["transcript_source"] is None
 
 
 def test_settings_are_stored_per_key_and_overwritten(tmp_path):

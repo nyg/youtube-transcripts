@@ -51,10 +51,10 @@ function App() {
           onChange={setChannelId}
         />
         <Button variant="outline" onClick={() => setPromptsOpen(true)}>
-          Manage prompts
+          Prompts
         </Button>
         <Button variant="outline" onClick={() => setManageOpen(true)}>
-          Manage channels
+          Channels
         </Button>
         <Button variant="outline" onClick={() => setSettingsOpen(true)}>
           Settings
@@ -67,15 +67,14 @@ function App() {
 
       {channels && channels.length === 0 && (
         <p className="text-muted-foreground py-16 text-center">
-          No channels yet — add a prompt in “Manage prompts”, then a channel in
-          “Manage channels”.
+          No channels yet. Add one in Channels.
         </p>
       )}
 
       {channelId !== null && (
         <Tabs defaultValue="process">
           <TabsList className="mb-4">
-            <TabsTrigger value="process">Process videos</TabsTrigger>
+            <TabsTrigger value="process">Videos</TabsTrigger>
             <TabsTrigger value="summaries">Summaries</TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="search">Search</TabsTrigger>

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from yt_summarizer import transcripts, youtube_client
 from yt_summarizer.transcripts import Transcript
-from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
+from yt_summarizer.youtube_client import RATE_LIMITED_MESSAGE, Video, YouTubeRateLimitError
 
 from ..estimates import PreparedVideo
 from ..prompts import extraction_for, settings_for
@@ -17,9 +17,6 @@ from ..schemas import EstimateItemOut, EstimateOut, EstimateRequest
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/estimates")
-
-_RATE_LIMITED_DETAIL = "YouTube rate limit (HTTP 429) — wait a few minutes and retry."
-_SKIPPED_DETAIL = "Skipped — YouTube is rate limiting this IP; try again in a few minutes."
 
 
 @router.post("", response_model=EstimateOut)
@@ -36,16 +33,14 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
     if prompt is None:
         raise HTTPException(
             status_code=422,
-            detail="This channel has no valid prompt configured — "
-            "choose a prompt for it in Manage channels.",
+            detail="This channel has no prompt. Choose one in Channels.",
         )
     prompt_name = prompt["name"]
     settings = settings_for(prompt, state.catalog, cfg.pricing)
     if settings is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Prompt {prompt_name!r} has no model or effort — "
-            "choose them in Manage prompts.",
+            detail=f"Prompt {prompt_name!r} needs a model and an effort. Choose them in Prompts.",
         )
     prompt_text = prompt["text"]
     estimated_output_tokens = prompt["estimated_output_tokens"]
@@ -76,6 +71,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
             transcript = Transcript(
                 text=row["transcript"],
                 segments=transcripts.segments_from_json(row["transcript_segments"]),
+                source=row["transcript_source"],
             )
         elif rate_limited:
             # YouTube already answered 429 in this batch; don't dig a deeper
@@ -87,7 +83,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
                     published_at=video.published_at,
                     url=video.url,
                     status="no_transcript",
-                    detail=_SKIPPED_DETAIL,
+                    detail=RATE_LIMITED_MESSAGE,
                 )
             )
             continue
@@ -106,7 +102,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
                         published_at=video.published_at,
                         url=video.url,
                         status="no_transcript",
-                        detail=_RATE_LIMITED_DETAIL,
+                        detail=RATE_LIMITED_MESSAGE,
                     )
                 )
                 continue
@@ -136,6 +132,7 @@ def create_estimate(body: EstimateRequest, request: Request) -> EstimateOut:
                 published_at=video.published_at,
                 url=video.url,
                 status="ok",
+                transcript_source=transcript.source,
                 input_tokens=estimate.input_tokens,
                 estimated_output_tokens=estimate.estimated_output_tokens,
                 cost_usd=estimate.cost_usd,

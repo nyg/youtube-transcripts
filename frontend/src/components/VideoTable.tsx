@@ -67,9 +67,9 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <p className="text-muted-foreground mr-auto text-sm">
-          {videos.length} recent videos — {newVideos.length} new,{" "}
-          {videos.length - newVideos.length} processed. Tick a processed video to
-          reprocess it.
+          {videos.length} videos: {newVideos.length} new,{" "}
+          {videos.length - newVideos.length} summarized. Select a summarized video to
+          redo it.
         </p>
         <Button
           variant="ghost"
@@ -81,7 +81,7 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
           Refresh
         </Button>
         <Button onClick={onEstimate} disabled={selected.size === 0}>
-          Estimate cost ({selected.size} selected)
+          Estimate cost ({selected.size})
         </Button>
       </div>
 
@@ -135,9 +135,9 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
                   {!video.processed ? (
                     <Badge>New</Badge>
                   ) : selected.has(video.video_id) ? (
-                    <Badge variant="outline">Reprocess</Badge>
+                    <Badge variant="outline">Redo</Badge>
                   ) : (
-                    <Badge variant="secondary">Processed</Badge>
+                    <Badge variant="secondary">Summarized</Badge>
                   )}
                 </TableCell>
               </TableRow>
@@ -145,7 +145,7 @@ export function VideoTable({ channelId, selected, onSelectedChange, onEstimate }
             {videos.length === 0 && (
               <TableRow>
                 <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
-                  No videos found for this channel.
+                  No videos found.
                 </TableCell>
               </TableRow>
             )}

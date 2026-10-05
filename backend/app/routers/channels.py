@@ -56,8 +56,8 @@ def add_channel(body: ChannelIn, request: Request) -> ChannelOut:
     if label is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Could not find a YouTube channel for {channel_input!r} — "
-            "expected an @handle, a UC... channel ID, or a channel URL",
+            detail=f"No YouTube channel found for {channel_input!r}. "
+            "Use an @handle, a channel ID or a URL.",
         )
     try:
         row = request.app.state.db.add_channel(

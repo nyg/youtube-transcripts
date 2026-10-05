@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { ApiError } from "@/api/client"
 import { useCreateEstimate, useCreateJob } from "@/api/queries"
+import { TRANSCRIPT_SOURCES } from "@/lib/transcript"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -69,7 +70,7 @@ export function EstimateDialog({
       onSuccess: ({ job_id }) => onJobCreated(job_id),
       onError: (error) => {
         if (error instanceof ApiError && error.status === 410) {
-          toast.warning("Estimate expired — re-running it now.")
+          toast.warning("Estimate expired. Running it again.")
           estimate.mutate({ channel_id: channelId, video_ids: videoIds })
         } else {
           toast.error(error.message)
@@ -84,17 +85,16 @@ export function EstimateDialog({
         <DialogHeader>
           <DialogTitle>Cost estimate</DialogTitle>
           <DialogDescription>
-            Counting tokens is free — nothing is sent to Claude until you
-            approve.
+            Estimates are free. Nothing is sent to Claude until you approve.
           </DialogDescription>
         </DialogHeader>
 
         {result && (
           <p className="text-muted-foreground text-xs">
-            Model {result.model}
-            {result.effort && ` at ${result.effort} effort`}, prompt “{result.prompt_name}”
+            {result.model}
+            {result.effort && `, ${result.effort} effort`}, prompt “{result.prompt_name}”
             {assumedTokens != null &&
-              `, assuming ~${assumedTokens.toLocaleString()} output tokens per video`}
+              `, ~${assumedTokens.toLocaleString()} output tokens per video`}
             .
           </p>
         )}
@@ -113,7 +113,7 @@ export function EstimateDialog({
                 <TableRow>
                   <TableHead>Video</TableHead>
                   <TableHead className="w-32 text-right">Input tokens</TableHead>
-                  <TableHead className="w-24 text-right">Est. cost</TableHead>
+                  <TableHead className="w-24 text-right">Cost</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -125,7 +125,15 @@ export function EstimateDialog({
                       </span>
                       {item.status === "no_transcript" && (
                         <p className="text-destructive mt-0.5 text-xs">
-                          No transcript — skipped. {item.detail}
+                          Skipped. {item.detail}
+                        </p>
+                      )}
+                      {item.transcript_source && (
+                        <p
+                          className="text-muted-foreground mt-0.5 text-xs"
+                          title={TRANSCRIPT_SOURCES[item.transcript_source].hint}
+                        >
+                          {TRANSCRIPT_SOURCES[item.transcript_source].label}
                         </p>
                       )}
                     </TableCell>
@@ -169,8 +177,9 @@ export function EstimateDialog({
             }
           >
             {createJob.isPending && <Loader2 className="animate-spin" />}
-            Approve — send {okItems.length > 0 ? okItems.length : ""} to Claude (
-            {fmtCost(result?.total_cost_usd)})
+            {okItems.length > 0
+              ? `Summarize ${okItems.length} · ${fmtCost(result?.total_cost_usd)}`
+              : "Summarize"}
           </Button>
         </DialogFooter>
       </DialogContent>

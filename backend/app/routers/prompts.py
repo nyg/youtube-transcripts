@@ -51,7 +51,7 @@ def _resolve_model(family: str, request: Request) -> ClaudeModel:
     if model is None:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown model {family!r} — choose one of: {', '.join(FAMILIES)}",
+            detail=f"Unknown model {family!r}. Choose one of: {', '.join(FAMILIES)}",
         )
     return model
 
@@ -124,6 +124,6 @@ def delete_prompt(prompt_id: int, request: Request) -> None:
         raise HTTPException(
             status_code=409,
             detail=f"Prompt {row['name']!r} is in use by: {labels}. "
-            "Reassign those channels to another prompt before deleting it.",
+            "Give those channels another prompt first.",
         )
     db.delete_prompt(prompt_id)
