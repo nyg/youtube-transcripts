@@ -40,7 +40,7 @@ In development the Vite dev server proxies `/api/*` to the backend, so the brows
 
 ## Requirements
 
-- Python 3.11+ (3.14 tested)
+- Python 3.11+ (3.15 tested), from [pyenv](https://github.com/pyenv/pyenv) unless you pass `PYTHON=/path/to/python3` to `make`
 - Node.js 20+ and [pnpm](https://pnpm.io/installation) 10+ (the frontend's
   package manager; `corepack enable pnpm` works too)
 - An Anthropic API key ([platform.claude.com](https://platform.claude.com/))
@@ -82,7 +82,7 @@ make install-service    # builds the frontend, installs and starts a systemd use
 
 The app is then at `http://<this-machine-ip>:8642`. It starts at boot, without a login (the target enables lingering for your user), and restarts if it crashes. It listens on all interfaces; use `make install-service HOST=127.0.0.1` to keep it on this machine, or `PORT=…` for another port.
 
-`make status`, `make logs`, `make restart` and `make stop` manage it, and `make uninstall-service` removes it. To update, `git pull`, then `make install` and `make install-service` again: it rebuilds the frontend and restarts the service.
+`make status`, `make logs`, `make restart` and `make stop` manage it, and `make uninstall-service` removes it. To update, `git pull`, then `make install` and `make install-service` again: `make install` rebuilds the `.venv` with pyenv's current `python3`, and `make install-service` rebuilds the frontend and restarts the service. Do the same after changing pyenv's Python version, before removing the old one, since the `.venv` links to the exact version it was built with.
 
 ## Usage
 

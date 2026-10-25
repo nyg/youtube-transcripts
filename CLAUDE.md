@@ -56,7 +56,7 @@ cd frontend && pnpm run build   # tsc -b + vite build (type-checks)
 cd frontend && pnpm run lint    # oxlint
 ```
 
-Python 3.14 lives in `.venv`. Backend commands run from `backend/` using
+Python 3.15 lives in `.venv`. `make install` rebuilds it from scratch with `pyenv which python3`, and stops when pyenv is not on `PATH` rather than falling back to the system Python; over SSH, run it in a login shell (`bash -lc`) or pass `PYTHON=`. Backend commands run from `backend/` using
 `../.venv/bin/...`. `ANTHROPIC_API_KEY` goes in `$XDG_CONFIG_HOME/yt-summarizer/.env`
 (only needed for actual summarization, not for listing/browsing).
 

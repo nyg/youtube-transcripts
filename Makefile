@@ -5,9 +5,11 @@ UNIT_DIR := $(if $(XDG_CONFIG_HOME),$(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/
 # 0.0.0.0 makes the app reachable from the LAN; HOST=127.0.0.1 keeps it on this machine.
 HOST ?= 0.0.0.0
 PORT ?= 8642
+PYTHON ?= $(shell pyenv which python3 2>/dev/null)
 
 install:
-	python3 -m venv .venv
+	$(if $(PYTHON),,$(error pyenv not found: run from a login shell, or pass PYTHON=/path/to/python3))
+	$(PYTHON) -m venv --clear .venv
 	.venv/bin/pip install -r backend/requirements.txt
 	cd frontend && pnpm install
 
