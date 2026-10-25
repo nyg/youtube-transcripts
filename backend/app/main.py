@@ -8,10 +8,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from yt_summarizer import paths, youtube_client
 from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
@@ -36,6 +38,8 @@ from .routers import (
     summaries,
 )
 from .settings import SettingsStore, load_settings
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 _LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -113,6 +117,11 @@ def _adopt_model_families(db: Database) -> None:
         log.info("Prompt %r now uses the latest %s model (was %s)", prompt["name"], family, model)
 
 
+def mount_frontend(app: FastAPI, dist: Path) -> None:
+    if dist.is_dir():
+        app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     legacy_config = paths.legacy_config()
@@ -180,3 +189,5 @@ for router_module in (
     questions,
 ):
     app.include_router(router_module.router)
+
+mount_frontend(app, FRONTEND_DIST)
