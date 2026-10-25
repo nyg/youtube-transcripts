@@ -12,7 +12,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 
-from youtube_transcripts import analysis
+from yt_summarizer import analysis
 
 from ..estimates import PreparedQuestion
 from ..prompts import model_settings

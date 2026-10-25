@@ -1,4 +1,4 @@
-# YouTube Transcripts
+# YouTube Transcript Summarizer
 
 Summarize the recent videos of your favorite YouTube channels with Claude, from
 a local web app.
@@ -33,10 +33,11 @@ a local web app.
 frontend/  Vite + React + TypeScript + Tailwind + shadcn/ui   (dev server :5173)
 backend/   FastAPI + uvicorn                                  (API server :8000)
            ├── app/            REST API, estimate store, job worker
-           └── youtube_transcripts/  domain modules (yt-dlp, transcripts, Claude, SQLite)
+           └── yt_summarizer/  domain modules (yt-dlp, transcripts, Claude, SQLite)
 ```
 
-In development the Vite dev server proxies `/api/*` to the backend, so the browser only talks to `localhost:5173`. Always-on, the backend also serves the built frontend, so a single process on `:8000` does both.
+The Vite dev server proxies `/api/*` to the backend, so the browser only ever
+talks to `localhost:5173`.
 
 ## Requirements
 
@@ -57,30 +58,26 @@ cp backend/.env.example backend/.env    # then put your ANTHROPIC_API_KEY in it
 
 There is no config file. Settings, channels and prompts are managed in the UI
 and stored in the database, which the backend creates on its first start at
-`~/.local/share/youtube-transcripts/videos.db` (honouring `$XDG_DATA_HOME`); the
+`~/.local/share/yt-summarizer/videos.db` (honouring `$XDG_DATA_HOME`); the
 checkout is never written to.
 
-Secrets go in `~/.config/youtube-transcripts/.env` (honouring `$XDG_CONFIG_HOME`); a
+Secrets go in `~/.config/yt-summarizer/.env` (honouring `$XDG_CONFIG_HOME`); a
 `backend/.env` is still picked up as a fallback.
 
 ## Running
 
-For development, two processes, one terminal each:
+Two processes, one terminal each:
 
 ```bash
 make backend    # uvicorn on http://localhost:8000 (API docs at /docs)
 make frontend   # Vite on http://localhost:5173 — open this in your browser
 ```
 
-### Always-on (Linux, e.g. a Raspberry Pi)
-
-```bash
-make install-service    # builds the frontend, installs and starts a systemd user service
-```
-
-The app is then at `http://<this-machine-ip>:8000`. It starts at boot, without a login (the target enables lingering for your user), and restarts if it crashes. It listens on all interfaces; use `make install-service HOST=127.0.0.1` to keep it on this machine, or `PORT=…` for another port.
-
-`make status`, `make logs`, `make restart` and `make stop` manage it, and `make uninstall-service` removes it. To update, `git pull`, then `make install` and `make install-service` again: it rebuilds the frontend and restarts the service.
+For an always-on box (a Raspberry Pi, say), `make start` launches both detached
+so they survive logging out, with `make status`, `make logs` and `make stop` to
+manage them. Logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
+(`~/.local/state/yt-summarizer` by default) — nothing is written inside the
+checkout.
 
 ## Usage
 
@@ -114,18 +111,16 @@ Everything is edited in the UI and stored in the database: channels, prompts and
 
 Each prompt carries its own model family, effort and output cap, set in "Prompts". A prompt without a model cannot run, nor one without an effort when its model takes one (Haiku takes none). The output cap covers thinking plus response; raise it when you raise the effort.
 
-Secrets live in `~/.config/youtube-transcripts/.env` (or `backend/.env` as a
+Secrets live in `~/.config/yt-summarizer/.env` (or `backend/.env` as a
 fallback) — `ANTHROPIC_API_KEY` and, for digests, `RESEND_API_KEY` — never in
 the database.
 
 ## Data & migrating
 
-The database lives at `~/.local/share/youtube-transcripts/videos.db` (following the
+The database lives at `~/.local/share/yt-summarizer/videos.db` (following the
 XDG Base Directory spec; relocate it with `$XDG_DATA_HOME`).
 
-**Upgrading from `yt-summarizer`.** The app used to keep its files in `~/.config/yt-summarizer` and `~/.local/share/yt-summarizer`. They are moved to the new names on the first start, unless a folder with the new name already exists.
-
-**Upgrading from a version with a `config.yaml`.** The file in `~/.config/youtube-transcripts/` (or where `$YOUTUBE_TRANSCRIPTS_CONFIG` points) is read on the first start: its settings and prompts are imported into the database, and prompts that named a model id move to its family. After that it is no longer needed and can be deleted. If it set `database:` to another location, the backend refuses to start until the database is moved to the XDG location (or `$XDG_DATA_HOME` points at it) and that line is removed.
+**Upgrading from a version with a `config.yaml`.** The file in `~/.config/yt-summarizer/` (or where `$YT_SUMMARIZER_CONFIG` points) is read on the first start: its settings and prompts are imported into the database, and prompts that named a model id move to its family. After that it is no longer needed and can be deleted. If it set `database:` to another location, the backend refuses to start until the database is moved to the XDG location (or `$XDG_DATA_HOME` points at it) and that line is removed.
 
 The schema is upgraded automatically on the next backend start (a `channels`
 table and a `channel_id` column are added).
@@ -158,7 +153,7 @@ table and a `channel_id` column are added).
 - **"YouTube is rate limiting requests (HTTP 429)"** — YouTube is throttling requests from your IP. Requests are already paced ("Seconds between YouTube requests" in Settings, default 2 s) and retried once after a 20 s backoff; when the 429 persists, the remaining videos in the batch are skipped so the throttling isn't made worse. Wait a few minutes and rerun the estimate — already-summarized videos reuse their stored transcript and cost no YouTube requests. If it keeps happening, raise that pause or set a cookies file in Settings (logged-in requests get higher limits).
 - **No videos found / yt-dlp errors** — YouTube changes its site regularly;
   update with `.venv/bin/pip install -U yt-dlp`.
-- **"Anthropic rejected the API key" (HTTP 502)** — check that `~/.config/youtube-transcripts/.env` exists and contains a valid `ANTHROPIC_API_KEY`.
+- **"Anthropic rejected the API key" (HTTP 502)** — check that `~/.config/yt-summarizer/.env` exists and contains a valid `ANTHROPIC_API_KEY`.
 - **"Another job is running" (HTTP 409)** — only one job runs at a time; wait for it to finish.
 - **"This estimate expired" (HTTP 410)** — estimates are kept in memory and consumed on approval; after a backend restart just run the estimate again.
 - **Costs look wrong** — the prices in Settings drive the cost math; keep them

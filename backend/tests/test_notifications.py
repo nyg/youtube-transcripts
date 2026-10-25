@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from youtube_transcripts.notifications import NotificationError, send_email
+from yt_summarizer.notifications import NotificationError, send_email
 
 
 def test_send_email_requires_api_key():

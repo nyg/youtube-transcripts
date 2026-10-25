@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from youtube_transcripts.markdown_email import render
+from yt_summarizer.markdown_email import render
 
 
 # -- inline formatting -------------------------------------------------------

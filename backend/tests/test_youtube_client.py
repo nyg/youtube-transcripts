@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from youtube_transcripts import youtube_client
-from youtube_transcripts.youtube_client import _fetch_rss_dates, _to_epoch, _utc_iso
+from yt_summarizer import youtube_client
+from yt_summarizer.youtube_client import _fetch_rss_dates, _to_epoch, _utc_iso
 
 _RSS = b"""<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"

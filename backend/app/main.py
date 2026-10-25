@@ -15,11 +15,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from youtube_transcripts import paths, youtube_client
-from youtube_transcripts.claude_client import ClaudeSummarizer, SummarizerError
-from youtube_transcripts.config import load_secrets, read_legacy_config
-from youtube_transcripts.database import Database
-from youtube_transcripts.models import FAMILIES, ModelCatalog, family_of
+from yt_summarizer import paths, youtube_client
+from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
+from yt_summarizer.config import load_secrets, read_legacy_config
+from yt_summarizer.database import Database
+from yt_summarizer.models import FAMILIES, ModelCatalog, family_of
 
 from .estimates import EstimateStore
 from .jobs import JobRegistry
@@ -124,7 +124,6 @@ def mount_frontend(app: FastAPI, dist: Path) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    paths.adopt_former_dirs()
     legacy_config = paths.legacy_config()
     load_secrets(legacy_config)
     file_config = read_legacy_config(legacy_config) if legacy_config else {}
@@ -163,7 +162,7 @@ async def lifespan(app: FastAPI):
         app.state.monitor.stop()
 
 
-app = FastAPI(title="YouTube Transcripts", lifespan=lifespan)
+app = FastAPI(title="YouTube Summarizer", lifespan=lifespan)
 
 
 @app.exception_handler(SummarizerError)

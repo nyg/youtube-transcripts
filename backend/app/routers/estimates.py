@@ -6,9 +6,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from youtube_transcripts import transcripts, youtube_client
-from youtube_transcripts.transcripts import Transcript
-from youtube_transcripts.youtube_client import RATE_LIMITED_MESSAGE, Video, YouTubeRateLimitError
+from yt_summarizer import transcripts, youtube_client
+from yt_summarizer.transcripts import Transcript
+from yt_summarizer.youtube_client import RATE_LIMITED_MESSAGE, Video, YouTubeRateLimitError
 
 from ..estimates import PreparedVideo
 from ..prompts import extraction_for, settings_for

@@ -12,7 +12,7 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
 
-from youtube_transcripts.models import FAMILIES, ClaudeModel
+from yt_summarizer.models import FAMILIES, ClaudeModel
 
 from ..prompts import stance_labels
 from ..schemas import MAX_STANCE_LABELS, PromptIn, PromptOut, PromptPatch

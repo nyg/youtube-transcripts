@@ -3,10 +3,10 @@ and that the budget is respected."""
 
 from __future__ import annotations
 
-from youtube_transcripts.analysis import build_context, search_terms
-from youtube_transcripts.database import Database
-from youtube_transcripts.mentions import Mention
-from youtube_transcripts.transcripts import Segment, segments_to_json
+from yt_summarizer.analysis import build_context, search_terms
+from yt_summarizer.database import Database
+from yt_summarizer.mentions import Mention
+from yt_summarizer.transcripts import Segment, segments_to_json
 
 
 def _save(db: Database, video_id: str, published_at: str, summary: str, transcript: str) -> None:

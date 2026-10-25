@@ -10,13 +10,13 @@ import pytest
 from app.jobs import JobRegistry
 from app.monitor import ChannelMonitor
 from app.settings import SettingsStore
-from youtube_transcripts import notifications, transcripts, youtube_client
-from youtube_transcripts.claude_client import CostEstimate, Extraction, ModelSettings, SummaryResult
-from youtube_transcripts.mentions import Mention
-from youtube_transcripts.config import DEFAULT_PRICING, Settings, parse_settings
-from youtube_transcripts.database import Database
-from youtube_transcripts.models import ModelCatalog
-from youtube_transcripts.youtube_client import Video
+from yt_summarizer import notifications, transcripts, youtube_client
+from yt_summarizer.claude_client import CostEstimate, Extraction, ModelSettings, SummaryResult
+from yt_summarizer.mentions import Mention
+from yt_summarizer.config import DEFAULT_PRICING, Settings, parse_settings
+from yt_summarizer.database import Database
+from yt_summarizer.models import ModelCatalog
+from yt_summarizer.youtube_client import Video
 
 
 def _transcript(text: str = "transcript") -> transcripts.Transcript:

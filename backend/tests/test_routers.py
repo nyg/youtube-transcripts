@@ -17,12 +17,12 @@ from app.estimates import EstimateStore
 from app.routers import estimates, mentions, meta, prompts, questions, search, summaries
 from app.routers import settings as settings_router
 from app.settings import SettingsStore
-from youtube_transcripts import transcripts, youtube_client
-from youtube_transcripts.config import DEFAULT_PRICING, parse_settings
-from youtube_transcripts.claude_client import CostEstimate, ModelSettings, SummarizerError
-from youtube_transcripts.database import Database
-from youtube_transcripts.mentions import Mention
-from youtube_transcripts.models import EFFORT_LEVELS, ClaudeModel, ModelCatalog
+from yt_summarizer import transcripts, youtube_client
+from yt_summarizer.config import DEFAULT_PRICING, parse_settings
+from yt_summarizer.claude_client import CostEstimate, ModelSettings, SummarizerError
+from yt_summarizer.database import Database
+from yt_summarizer.mentions import Mention
+from yt_summarizer.models import EFFORT_LEVELS, ClaudeModel, ModelCatalog
 
 
 SETTINGS = {"model": "opus", "effort": "low"}
@@ -432,7 +432,7 @@ class _FakeAnswerer:
         self.settings: list = []
 
     def estimate_answer(self, settings, question, context, estimated_output_tokens):
-        from youtube_transcripts.claude_client import CostEstimate
+        from yt_summarizer.claude_client import CostEstimate
 
         self.contexts.append(context)
         self.settings.append(settings)
@@ -443,7 +443,7 @@ class _FakeAnswerer:
         )
 
     def answer(self, settings, question, context):
-        from youtube_transcripts.claude_client import AnswerResult
+        from yt_summarizer.claude_client import AnswerResult
 
         self.settings.append(settings)
         return AnswerResult(

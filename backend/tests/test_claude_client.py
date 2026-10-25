@@ -8,15 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from youtube_transcripts.claude_client import (
+from yt_summarizer.claude_client import (
     ClaudeSummarizer,
     Extraction,
     ModelSettings,
     SummarizerError,
 )
-from youtube_transcripts.config import ModelPricing
-from youtube_transcripts.models import ClaudeModel
-from youtube_transcripts.transcripts import Segment, Transcript
+from yt_summarizer.config import ModelPricing
+from yt_summarizer.models import ClaudeModel
+from yt_summarizer.transcripts import Segment, Transcript
 
 PRICING = ModelPricing(input_per_mtok=1.0, output_per_mtok=5.0)
 SETTINGS = ModelSettings(model="m", effort="low", max_output_tokens=4096, pricing=PRICING)

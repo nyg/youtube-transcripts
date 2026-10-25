@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from youtube_transcripts import models
-from youtube_transcripts.models import (
+from yt_summarizer import models
+from yt_summarizer.models import (
     BUILT_IN,
     EFFORT_LEVELS,
     ClaudeModel,

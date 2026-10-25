@@ -6,9 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from youtube_transcripts.config import DEFAULT_MAX_OUTPUT_TOKENS
-from youtube_transcripts.models import Effort
-from youtube_transcripts.transcripts import TranscriptSource
+from yt_summarizer.config import DEFAULT_MAX_OUTPUT_TOKENS
+from yt_summarizer.models import Effort
+from yt_summarizer.transcripts import TranscriptSource
 
 MAX_STANCE_LABELS = 20
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from youtube_transcripts.chunking import build_chunks, fts_query
-from youtube_transcripts.transcripts import Segment
+from yt_summarizer.chunking import build_chunks, fts_query
+from yt_summarizer.transcripts import Segment
 
 
 def test_segments_become_windowed_chunks_with_start_times():

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from youtube_transcripts import youtube_client
-from youtube_transcripts.config import ConfigError, Settings, parse_settings, settings_to_raw
+from yt_summarizer import youtube_client
+from yt_summarizer.config import ConfigError, Settings, parse_settings, settings_to_raw
 
 from ..schemas import SettingsBody
 
