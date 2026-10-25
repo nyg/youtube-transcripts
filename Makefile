@@ -1,6 +1,6 @@
 .PHONY: install backend frontend build install-service uninstall-service start stop restart status logs
 
-SERVICE := youtube-transcripts
+SERVICE := yt-summarizer
 UNIT_DIR := $(if $(XDG_CONFIG_HOME),$(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
 # 0.0.0.0 makes the app reachable from the LAN; HOST=127.0.0.1 keeps it on this machine.
 HOST ?= 0.0.0.0

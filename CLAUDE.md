@@ -39,8 +39,7 @@ backend/   FastAPI + uvicorn                               (API server :8000)
                └── database.py     SQLite persistence
 ```
 
-The Vite dev server proxies `/api/*` to `http://localhost:8000`, so the browser
-only talks to `:5173`.
+In development the Vite dev server proxies `/api/*` to `http://localhost:8000`, so the browser only talks to `:5173`. Always-on, there is one process: `app/main.py` `mount_frontend` serves the built `frontend/dist` from `/` next to the API on `:8000`, as a systemd user service (`deploy/yt-summarizer.service`, installed by `make install-service`, which fills in the checkout path). Keep it to one uvicorn worker: each worker would run its own monitor.
 
 ## Run / test
 
@@ -76,11 +75,7 @@ left by an older install (in the config dir, or where `$YT_SUMMARIZER_CONFIG`
 points) is only read to import its settings and prompts on the first start;
 `config.read_legacy_config` refuses to start if it names another `database`,
 because silently opening the default one would look like data loss.
-The Makefile's detached-mode logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
-(`STATE_DIR`; not `$XDG_RUNTIME_DIR`, which is wiped when the user's last
-session ends — `make start` is meant to survive logout). Nothing the app or the
-Makefile writes belongs inside the checkout: don't hardcode a repo-relative
-database, config, or log path.
+Logs go to the journal (`make logs`). Nothing the app or the Makefile writes belongs inside the checkout: don't hardcode a repo-relative database, config, or log path.
 
 **Settings live in the DB and are edited in the UI.** The `settings` table holds one JSON value per top-level key (`max_videos_fetch`, `transcript_languages`, `youtube_request_interval`, `cookies_file`, `pricing`, `priced_models`, `monitoring`, `ask`). `config.parse_settings` is the single place they are validated, for the stored values and for `PUT /api/settings` alike (a `ConfigError` becomes a 422). On the first start with an empty table, `app/settings.py` `load_settings` imports whatever an older `config.yaml` still holds (`config.legacy_settings`), then the file is ignored. `app.state.settings` is a `SettingsStore`: read `.current` at the time of use and never keep a copy, so a save takes effect without a restart. Saving also re-applies the YouTube pacing and wakes the monitor. Add a setting in `Settings`, `parse_settings`, `settings_to_raw`, `SettingsBody` and the field lists of `SettingsDialog.tsx`.
 
