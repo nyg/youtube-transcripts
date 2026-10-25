@@ -6,7 +6,6 @@ backend/config.yaml
 
 # Virtual environments
 .venv/
-venv/
 
 # Python
 __pycache__/
@@ -21,6 +20,3 @@ output/
 node_modules/
 dist/
 .DS_Store
-
-# Legacy: an older `make start` wrote PIDs and logs here. Kept so an older checkout stays clean.
-.run/
