@@ -13,10 +13,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from yt_summarizer.analysis import Source
-from yt_summarizer.claude_client import CostEstimate, Extraction, ModelSettings
-from yt_summarizer.transcripts import Transcript
-from yt_summarizer.youtube_client import Video
+from youtube_transcripts.analysis import Source
+from youtube_transcripts.claude_client import CostEstimate, Extraction, ModelSettings
+from youtube_transcripts.transcripts import Transcript
+from youtube_transcripts.youtube_client import Video
 
 _MAX_ENTRIES = 20
 

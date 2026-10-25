@@ -43,7 +43,7 @@ function App() {
     <div className="mx-auto max-w-5xl px-4 py-8">
       <header className="mb-6 flex flex-wrap items-center gap-3">
         <h1 className="mr-auto text-2xl font-semibold tracking-tight">
-          YouTube Summarizer
+          YouTube Transcripts
         </h1>
         <ChannelSelect
           channels={channels ?? []}

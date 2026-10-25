@@ -8,11 +8,11 @@ import pytest
 
 from app.estimates import PreparedEstimate, PreparedVideo
 from app.jobs import JobConflictError, JobRegistry
-from yt_summarizer.claude_client import CostEstimate, ModelSettings, SummaryResult
-from yt_summarizer.config import ModelPricing
-from yt_summarizer.database import Database
-from yt_summarizer.transcripts import Transcript
-from yt_summarizer.youtube_client import Video
+from youtube_transcripts.claude_client import CostEstimate, ModelSettings, SummaryResult
+from youtube_transcripts.config import ModelPricing
+from youtube_transcripts.database import Database
+from youtube_transcripts.transcripts import Transcript
+from youtube_transcripts.youtube_client import Video
 
 
 def _empty_estimate() -> PreparedEstimate:

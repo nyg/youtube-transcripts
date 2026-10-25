@@ -31,12 +31,12 @@ from datetime import datetime, timedelta, timezone
 
 from croniter import croniter
 
-from yt_summarizer import markdown_email, notifications, transcripts, youtube_client
-from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.database import Database
-from yt_summarizer.models import ModelCatalog
-from yt_summarizer.transcripts import segments_to_json
-from yt_summarizer.youtube_client import Video, YouTubeRateLimitError
+from youtube_transcripts import markdown_email, notifications, transcripts, youtube_client
+from youtube_transcripts.claude_client import ClaudeSummarizer, SummarizerError
+from youtube_transcripts.database import Database
+from youtube_transcripts.models import ModelCatalog
+from youtube_transcripts.transcripts import segments_to_json
+from youtube_transcripts.youtube_client import Video, YouTubeRateLimitError
 
 from .jobs import JobRegistry
 from .prompts import extraction_for, settings_for

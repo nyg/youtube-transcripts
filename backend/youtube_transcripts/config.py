@@ -115,7 +115,7 @@ def _reject_relocated_database(config_file: Path, configured: object) -> None:
         raise ConfigError(
             f"{config_file} sets 'database: {configured}', which is no longer read: the "
             f"database is always {paths.database_path()}. Move yours there, or point "
-            "$XDG_DATA_HOME at the folder holding its yt-summarizer directory, then "
+            "$XDG_DATA_HOME at the folder holding its youtube-transcripts directory, then "
             "remove that line."
         )
 

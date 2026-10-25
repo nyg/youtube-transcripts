@@ -4,8 +4,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from yt_summarizer.config import Settings, legacy_settings, parse_settings, settings_to_raw
-from yt_summarizer.database import Database
+from youtube_transcripts.config import Settings, legacy_settings, parse_settings, settings_to_raw
+from youtube_transcripts.database import Database
 
 log = logging.getLogger(__name__)
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from yt_summarizer import config
-from yt_summarizer.config import (
+from youtube_transcripts import config
+from youtube_transcripts.config import (
     DEFAULT_PRICING,
     ConfigError,
     ModelPricing,
@@ -133,7 +133,7 @@ def test_a_database_kept_elsewhere_is_refused_rather_than_ignored(
 
 def test_a_database_key_naming_the_default_location_is_tolerated(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    default = tmp_path / "yt-summarizer" / "videos.db"
+    default = tmp_path / "youtube-transcripts" / "videos.db"
 
     relative = read_legacy_config(_write(tmp_path, "database: videos.db\n"))
     absolute = read_legacy_config(_write(tmp_path, f"database: {default}\n"))
@@ -151,7 +151,7 @@ def test_secrets_are_read_from_the_config_dir_then_the_default_search(monkeypatc
     load_secrets(None)
     load_secrets(elsewhere)
 
-    home = tmp_path / "yt-summarizer" / ".env"
+    home = tmp_path / "youtube-transcripts" / ".env"
     assert loaded == [home, None, tmp_path / "profile" / ".env", home, None]
 
 

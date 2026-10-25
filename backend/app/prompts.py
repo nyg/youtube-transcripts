@@ -4,10 +4,10 @@ import json
 import sqlite3
 from collections.abc import Mapping
 
-from yt_summarizer.claude_client import Extraction, ModelSettings
-from yt_summarizer.config import ModelPricing
-from yt_summarizer.database import Database
-from yt_summarizer.models import ModelCatalog
+from youtube_transcripts.claude_client import Extraction, ModelSettings
+from youtube_transcripts.config import ModelPricing
+from youtube_transcripts.database import Database
+from youtube_transcripts.models import ModelCatalog
 
 
 def stance_labels(prompt: sqlite3.Row) -> list[str]:

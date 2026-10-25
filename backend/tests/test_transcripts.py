@@ -8,15 +8,15 @@ from typing import Any
 import pytest
 from yt_dlp.networking.exceptions import RequestError
 
-from yt_summarizer import transcripts, youtube_client
-from yt_summarizer.transcripts import (
+from youtube_transcripts import transcripts, youtube_client
+from youtube_transcripts.transcripts import (
     CaptionTrack,
     TranscriptError,
     _parse_json3,
     fetch_transcript,
     select_caption_track,
 )
-from yt_summarizer.youtube_client import YouTubeRateLimitError
+from youtube_transcripts.youtube_client import YouTubeRateLimitError
 
 
 def _formats(name: str, *exts: str) -> list[dict[str, str]]:

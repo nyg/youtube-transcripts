@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from app.main import _adopt_model_families
 from app.settings import SettingsStore, load_settings
-from yt_summarizer.config import parse_settings
-from yt_summarizer.database import Database
+from youtube_transcripts.config import parse_settings
+from youtube_transcripts.database import Database
 
 
 def test_first_start_imports_the_config_file_and_stores_it(tmp_path):

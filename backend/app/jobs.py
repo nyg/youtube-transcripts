@@ -8,10 +8,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from yt_summarizer.claude_client import ClaudeSummarizer, SummarizerError
-from yt_summarizer.database import Database
-from yt_summarizer.transcripts import Transcript, segments_to_json
-from yt_summarizer.youtube_client import Video
+from youtube_transcripts.claude_client import ClaudeSummarizer, SummarizerError
+from youtube_transcripts.database import Database
+from youtube_transcripts.transcripts import Transcript, segments_to_json
+from youtube_transcripts.youtube_client import Video
 
 from .estimates import PreparedEstimate
 from .schemas import JobItemOut, JobOut

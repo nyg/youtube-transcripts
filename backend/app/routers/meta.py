@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 
-from yt_summarizer.config import Settings
-from yt_summarizer.models import ClaudeModel
+from youtube_transcripts.config import Settings
+from youtube_transcripts.models import ClaudeModel
 
 from ..schemas import MetaOut, ModelOut
 

@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from yt_summarizer.database import Database
-from yt_summarizer.mentions import Mention
-from yt_summarizer.transcripts import Segment, segments_from_json, segments_to_json
+from youtube_transcripts.database import Database
+from youtube_transcripts.mentions import Mention
+from youtube_transcripts.transcripts import Segment, segments_from_json, segments_to_json
 
 
 def _midnight_iso() -> str:

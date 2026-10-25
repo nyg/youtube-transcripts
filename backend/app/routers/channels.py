@@ -7,7 +7,7 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from yt_summarizer import youtube_client
+from youtube_transcripts import youtube_client
 
 from ..schemas import ChannelIn, ChannelOut, ChannelPatch, VideoListOut, VideoOut
 
