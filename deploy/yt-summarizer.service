@@ -1,0 +1,12 @@
+[Unit]
+Description=YouTube Summarizer
+
+[Service]
+WorkingDirectory=@CHECKOUT@/backend
+# One process only: each uvicorn worker would run its own monitor.
+ExecStart=@CHECKOUT@/.venv/bin/uvicorn app.main:app --host @HOST@ --port @PORT@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

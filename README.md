@@ -31,13 +31,12 @@ a local web app.
 
 ```
 frontend/  Vite + React + TypeScript + Tailwind + shadcn/ui   (dev server :5173)
-backend/   FastAPI + uvicorn                                  (API server :8000)
+backend/   FastAPI + uvicorn                                  (API server :8642)
            ├── app/            REST API, estimate store, job worker
            └── yt_summarizer/  domain modules (yt-dlp, transcripts, Claude, SQLite)
 ```
 
-The Vite dev server proxies `/api/*` to the backend, so the browser only ever
-talks to `localhost:5173`.
+In development the Vite dev server proxies `/api/*` to the backend, so the browser only talks to `localhost:5173`. Always-on, the backend also serves the built frontend, so a single process on `:8642` does both.
 
 ## Requirements
 
@@ -49,7 +48,7 @@ talks to `localhost:5173`.
 ## Setup
 
 ```bash
-git clone <this repo> && cd youtube-transcripts
+git clone <this repo> && cd yt-summarizer
 
 make install              # creates .venv, installs backend + frontend deps
 
@@ -66,18 +65,24 @@ Secrets go in `~/.config/yt-summarizer/.env` (honouring `$XDG_CONFIG_HOME`); a
 
 ## Running
 
-Two processes, one terminal each:
+For development, two processes, one terminal each:
 
 ```bash
-make backend    # uvicorn on http://localhost:8000 (API docs at /docs)
+make backend    # uvicorn on http://localhost:8642 (API docs at /docs)
 make frontend   # Vite on http://localhost:5173 — open this in your browser
 ```
 
-For an always-on box (a Raspberry Pi, say), `make start` launches both detached
-so they survive logging out, with `make status`, `make logs` and `make stop` to
-manage them. Logs and PID files go to `$XDG_STATE_HOME/yt-summarizer`
-(`~/.local/state/yt-summarizer` by default) — nothing is written inside the
-checkout.
+To run the backend on another port, pass the same `PORT=…` to both, so the frontend forwards `/api` to it.
+
+### Always-on (Linux, e.g. a Raspberry Pi)
+
+```bash
+make install-service    # builds the frontend, installs and starts a systemd user service
+```
+
+The app is then at `http://<this-machine-ip>:8642`. It starts at boot, without a login (the target enables lingering for your user), and restarts if it crashes. It listens on all interfaces; use `make install-service HOST=127.0.0.1` to keep it on this machine, or `PORT=…` for another port.
+
+`make status`, `make logs`, `make restart` and `make stop` manage it, and `make uninstall-service` removes it. To update, `git pull`, then `make install` and `make install-service` again: it rebuilds the frontend and restarts the service.
 
 ## Usage
 
