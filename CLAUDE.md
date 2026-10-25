@@ -14,7 +14,7 @@ Anthropic until the user approves an on-screen cost estimate.
 
 ```
 frontend/  Vite + React + TS + Tailwind + shadcn/ui       (dev server :5173)
-backend/   FastAPI + uvicorn                               (API server :8000)
+backend/   FastAPI + uvicorn                               (API server :8642)
            ├── app/            REST API (routers/), estimate store, job worker
            │   ├── main.py         lifespan wiring: config, db, settings, prompt bootstrap, jobs
            │   ├── routers/        channels, prompts, estimates, jobs, summaries,
@@ -39,13 +39,13 @@ backend/   FastAPI + uvicorn                               (API server :8000)
                └── database.py     SQLite persistence
 ```
 
-In development the Vite dev server proxies `/api/*` to `http://localhost:8000`, so the browser only talks to `:5173`. Always-on, there is one process: `app/main.py` `mount_frontend` serves the built `frontend/dist` from `/` next to the API on `:8000`, as a systemd user service (`deploy/yt-summarizer.service`, installed by `make install-service`, which fills in the checkout path). Keep it to one uvicorn worker: each worker would run its own monitor.
+In development the Vite dev server proxies `/api/*` to the backend, so the browser only talks to `:5173`. Always-on, there is one process: `app/main.py` `mount_frontend` serves the built `frontend/dist` from `/` next to the API on `:8642`, as a systemd user service (`deploy/yt-summarizer.service`, installed by `make install-service`, which fills in the checkout path). Keep it to one uvicorn worker: each worker would run its own monitor.
 
 ## Run / test
 
 ```bash
 make install          # .venv + backend deps + frontend pnpm install
-make backend          # uvicorn --reload on :8000  (run from repo root)
+make backend          # uvicorn --reload on :8642  (run from repo root)
 make frontend         # Vite on :5173
 
 # backend tests (pytest is in requirements.txt; install into .venv if missing)

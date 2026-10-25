@@ -4,7 +4,7 @@ SERVICE := yt-summarizer
 UNIT_DIR := $(if $(XDG_CONFIG_HOME),$(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
 # 0.0.0.0 makes the app reachable from the LAN; HOST=127.0.0.1 keeps it on this machine.
 HOST ?= 0.0.0.0
-PORT ?= 8000
+PORT ?= 8642
 
 install:
 	python3 -m venv .venv
@@ -13,10 +13,10 @@ install:
 
 # --- Development (auto-reload, tied to the terminal) --------------------------
 backend:
-	cd backend && ../.venv/bin/uvicorn app.main:app --reload --port 8000
+	cd backend && ../.venv/bin/uvicorn app.main:app --reload --port $(PORT)
 
 frontend:
-	cd frontend && pnpm run dev
+	cd frontend && BACKEND_PORT=$(PORT) pnpm run dev
 
 # --- Always-on (systemd user service, Linux) -----------------------------------
 build:

@@ -1,6 +1,6 @@
 """FastAPI application wiring config, database, Claude client, and routers.
 
-Run from the backend/ directory:  uvicorn app.main:app --reload --port 8000
+Run from the backend/ directory:  uvicorn app.main:app --reload --port 8642
 """
 
 from __future__ import annotations
