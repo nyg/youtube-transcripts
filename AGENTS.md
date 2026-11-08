@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Guidance for AI coding agents working in this repo. Keep it accurate — update it
 when the architecture or conventions below change.
