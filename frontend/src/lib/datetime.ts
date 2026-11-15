@@ -5,23 +5,29 @@
 // Date constructor interprets as local time — a reasonable fallback.
 
 function parse(value: string | null | undefined): Date | null {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
+   if (!value) {
+      return null
+   }
+   const date = new Date(value)
+   return Number.isNaN(date.getTime()) ? null : date
 }
 
 /** Local date + time, e.g. "18 Jul 2026, 20:00". */
 export function formatDateTime(value: string | null | undefined): string {
-  const date = parse(value)
-  if (!date) return value ?? "—"
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+   const date = parse(value)
+   if (!date) {
+      return value ?? '—'
+   }
+   return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 /** Local date only, e.g. "18 Jul 2026". */
 export function formatDate(value: string | null | undefined): string {
-  const date = parse(value)
-  if (!date) return value ?? "—"
-  return date.toLocaleDateString(undefined, { dateStyle: "medium" })
+   const date = parse(value)
+   if (!date) {
+      return value ?? '—'
+   }
+   return date.toLocaleDateString(undefined, { dateStyle: 'medium' })
 }
 
 /**
@@ -30,9 +36,11 @@ export function formatDate(value: string | null | undefined): string {
  * dates include the local time.
  */
 export function formatPublished(
-  value: string | null | undefined,
-  approximate = false,
+   value: string | null | undefined,
+   approximate = false,
 ): string {
-  if (!value) return "—"
-  return approximate ? `~${formatDate(value)}` : formatDateTime(value)
+   if (!value) {
+      return '—'
+   }
+   return approximate ? `~${formatDate(value)}` : formatDateTime(value)
 }
