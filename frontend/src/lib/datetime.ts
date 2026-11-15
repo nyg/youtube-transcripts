@@ -13,6 +13,13 @@ function parse(value: string | null | undefined): Date | null {
 }
 
 /** Local date + time, e.g. "18 Jul 2026, 20:00". */
+export function periodStart(period: string): string | undefined {
+   if (period === 'all') {
+      return undefined
+   }
+   return new Date(Date.now() - Number(period) * 86_400_000).toISOString()
+}
+
 export function formatDateTime(value: string | null | undefined): string {
    const date = parse(value)
    if (!date) {

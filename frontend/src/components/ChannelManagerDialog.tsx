@@ -1,5 +1,5 @@
 import { Loader2, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -28,6 +28,7 @@ import {
    SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { useSyncedState } from '@/lib/synced-state'
 
 interface Props {
    open: boolean
@@ -44,11 +45,9 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
    const noPrompts = !!prompts && prompts.length === 0
 
    // Default the new-channel prompt to the first available one.
-   useEffect(() => {
-      if (!promptName && prompts && prompts.length > 0) {
-         setPromptName(prompts[0].name)
-      }
-   }, [prompts, promptName])
+   if (!promptName && prompts && prompts.length > 0) {
+      setPromptName(prompts[0].name)
+   }
 
    const submit = () => {
       const value = input.trim()
@@ -137,12 +136,8 @@ export function ChannelManagerDialog({ open, onOpenChange }: Props) {
 function ChannelRow({ channel, prompts }: { channel: Channel, prompts: Prompt[] }) {
    const deleteChannel = useDeleteChannel()
    const updateChannel = useUpdateChannel()
-   const [emails, setEmails] = useState(channel.notify_emails.join(', '))
-
    // Keep the local field in sync if the channel changes elsewhere.
-   useEffect(() => {
-      setEmails(channel.notify_emails.join(', '))
-   }, [channel.notify_emails])
+   const [emails, setEmails] = useSyncedState(channel.notify_emails.join(', '), channel.notify_emails)
 
    const commitEmails = () => {
       const parsed = emails

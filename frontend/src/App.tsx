@@ -26,16 +26,12 @@ function App() {
    const [settingsOpen, setSettingsOpen] = useState(false)
 
    // Keep the selection valid as channels are added/removed.
-   useEffect(() => {
-      if (!channels) {
-         return
+   if (channels) {
+      const valid = channels.some((c) => c.id === channelId) ? channelId : (channels[0]?.id ?? null)
+      if (valid !== channelId) {
+         setChannelId(valid)
       }
-      if (channels.length === 0) {
-         setChannelId(null)
-      } else if (channelId === null || !channels.some((c) => c.id === channelId)) {
-         setChannelId(channels[0].id)
-      }
-   }, [channels, channelId])
+   }
 
    useEffect(() => {
       if (channelId !== null) {

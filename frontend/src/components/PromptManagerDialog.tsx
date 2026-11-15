@@ -1,5 +1,5 @@
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { useSyncedState } from '@/lib/synced-state'
 
 interface Props {
    open: boolean
@@ -260,19 +261,13 @@ function PromptRow({ prompt }: { prompt: Prompt }) {
    const updatePrompt = useUpdatePrompt()
    const deletePrompt = useDeletePrompt()
    const [name, setName] = useState(prompt.name)
-   const [text, setText] = useState(prompt.text)
-   const [tokens, setTokens] = useState(String(prompt.estimated_output_tokens))
-   const [maxTokens, setMaxTokens] = useState(String(prompt.max_output_tokens))
-   const [entityKind, setEntityKind] = useState(prompt.entity_kind ?? '')
-   const [labels, setLabels] = useState(prompt.stance_labels.join(', '))
+   const [text, setText] = useSyncedState(prompt.text)
+   const [tokens, setTokens] = useSyncedState(String(prompt.estimated_output_tokens))
+   const [maxTokens, setMaxTokens] = useSyncedState(String(prompt.max_output_tokens))
+   const [entityKind, setEntityKind] = useSyncedState(prompt.entity_kind ?? '')
+   const [labels, setLabels] = useSyncedState(prompt.stance_labels.join(', '), prompt.stance_labels)
    const choice = useModelChoice(prompt.model, prompt.effort)
    const cannotRun = !choice.loading && !choice.complete
-
-   useEffect(() => setText(prompt.text), [prompt.text])
-   useEffect(() => setEntityKind(prompt.entity_kind ?? ''), [prompt.entity_kind])
-   useEffect(() => setLabels(prompt.stance_labels.join(', ')), [prompt.stance_labels])
-   useEffect(() => setTokens(String(prompt.estimated_output_tokens)), [prompt.estimated_output_tokens])
-   useEffect(() => setMaxTokens(String(prompt.max_output_tokens)), [prompt.max_output_tokens])
 
    const update = (fields: Omit<Parameters<typeof updatePrompt.mutate>[0], 'promptId'>) =>
       updatePrompt.mutate(

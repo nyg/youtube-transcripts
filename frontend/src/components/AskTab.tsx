@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { periodStart } from '@/lib/datetime'
 
 const PERIODS = [
    { value: '7', label: 'Last 7 days' },
@@ -48,12 +49,11 @@ export function AskTab({ channelId }: { channelId: number }) {
    const scope = allChannels ? undefined : channelId
    const { data: history, isLoading } = useQuestions(scope)
 
-   const since = useMemo(() => {
-      if (period === 'all') {
-         return undefined
-      }
-      return new Date(Date.now() - Number(period) * 86_400_000).toISOString()
-   }, [period])
+   const [since, setSince] = useState(() => periodStart(period))
+   const changePeriod = (next: string) => {
+      setPeriod(next)
+      setSince(periodStart(next))
+   }
 
    const estimate = estimateQuestion.data
    const canEstimate =
@@ -122,7 +122,7 @@ export function AskTab({ channelId }: { channelId: number }) {
          />
 
          <div className="flex flex-wrap items-center gap-3">
-            <Select value={period} onValueChange={setPeriod}>
+            <Select value={period} onValueChange={changePeriod}>
                <SelectTrigger className="w-40">
                   <SelectValue />
                </SelectTrigger>

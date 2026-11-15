@@ -22,7 +22,7 @@ import {
    TableHeader,
    TableRow,
 } from '@/components/ui/table'
-import { formatPublished } from '@/lib/datetime'
+import { formatPublished, periodStart } from '@/lib/datetime'
 import { stanceClass } from '@/lib/stance'
 
 const PERIODS = [
@@ -38,12 +38,11 @@ export function MentionsTab({ channelId }: { channelId: number }) {
    const [allChannels, setAllChannels] = useState(false)
    const [expanded, setExpanded] = useState<string | null>(null)
 
-   const since = useMemo(() => {
-      if (period === 'all') {
-         return undefined
-      }
-      return new Date(Date.now() - Number(period) * 86_400_000).toISOString()
-   }, [period])
+   const [since, setSince] = useState(() => periodStart(period))
+   const changePeriod = (next: string) => {
+      setPeriod(next)
+      setSince(periodStart(next))
+   }
 
    const scope = allChannels ? undefined : channelId
    const { data: entities, isLoading } = useEntities(scope, since)
@@ -68,7 +67,7 @@ export function MentionsTab({ channelId }: { channelId: number }) {
                placeholder="Filter entities…"
                className="max-w-56"
             />
-            <Select value={period} onValueChange={setPeriod}>
+            <Select value={period} onValueChange={changePeriod}>
                <SelectTrigger className="w-40">
                   <SelectValue />
                </SelectTrigger>
