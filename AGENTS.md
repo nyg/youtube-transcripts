@@ -53,7 +53,7 @@ cd backend && ../.venv/bin/python -m pytest -q
 
 # frontend checks
 cd frontend && pnpm run build   # tsc -b + vite build (type-checks)
-cd frontend && pnpm run lint    # oxlint
+cd frontend && pnpm run lint    # eslint
 ```
 
 Python 3.15 lives in `.venv`. `make install` rebuilds it from scratch with `pyenv which python3`, and stops when pyenv is not on `PATH` rather than falling back to the system Python; over SSH, run it in a login shell (`bash -lc`) or pass `PYTHON=`. Backend commands run from `backend/` using
