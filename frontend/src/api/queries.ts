@@ -1,381 +1,384 @@
 import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+   useMutation,
+   useQuery,
+   useQueryClient,
+} from '@tanstack/react-query'
 
-import { api } from "./client"
+import { api } from './client'
 import type {
-  Channel,
-  ClaudeModel,
-  Entity,
-  Estimate,
-  EstimateRequest,
-  Job,
-  Mention,
-  Meta,
-  Prompt,
-  Question,
-  QuestionEstimate,
-  SearchHit,
-  Settings,
-  Summary,
-  SummaryDetail,
-  VideoList,
-} from "./types"
+   Channel,
+   ClaudeModel,
+   Entity,
+   Estimate,
+   EstimateRequest,
+   Job,
+   Mention,
+   Meta,
+   Prompt,
+   Question,
+   QuestionEstimate,
+   SearchHit,
+   Settings,
+   Summary,
+   SummaryDetail,
+   VideoList,
+} from './types'
 
 export function useMeta() {
-  return useQuery({
-    queryKey: ["meta"],
-    queryFn: () => api<Meta>("/api/meta"),
-    staleTime: Infinity,
-  })
+   return useQuery({
+      queryKey: ['meta'],
+      queryFn: () => api<Meta>('/api/meta'),
+      staleTime: Infinity,
+   })
 }
 
 export function useModelChoice(family: string | null, effort: string | null) {
-  const { data: meta } = useMeta()
-  const model = meta?.models.find((candidate) => candidate.family === family)
-  const needsEffort = !!model && model.efforts.length > 0
-  const complete = !!model && (!needsEffort || model.efforts.includes(effort ?? ""))
-  return { loading: !meta, model, needsEffort, complete }
+   const { data: meta } = useMeta()
+   const model = meta?.models.find((candidate) => candidate.family === family)
+   const needsEffort = !!model && model.efforts.length > 0
+   const complete = !!model && (!needsEffort || model.efforts.includes(effort ?? ''))
+   return { loading: !meta, model, needsEffort, complete }
 }
 
 export function useSettings(enabled: boolean) {
-  return useQuery({
-    queryKey: ["settings"],
-    queryFn: () => api<Settings>("/api/settings"),
-    enabled,
-  })
+   return useQuery({
+      queryKey: ['settings'],
+      queryFn: () => api<Settings>('/api/settings'),
+      enabled,
+   })
 }
 
 export function useUpdateSettings() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (settings: Settings) =>
-      api<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
-    onSuccess: (saved) => {
-      const previous = queryClient.getQueryData<Settings>(["settings"])
-      queryClient.setQueryData(["settings"], saved)
-      queryClient.invalidateQueries({ queryKey: ["meta"] })
-      // A listing costs a YouTube request: redo it only when its length changed.
-      if (previous?.max_videos_fetch !== saved.max_videos_fetch)
-        queryClient.invalidateQueries({ queryKey: ["videos"] })
-    },
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (settings: Settings) =>
+         api<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+      onSuccess: (saved) => {
+         const previous = queryClient.getQueryData<Settings>(['settings'])
+         queryClient.setQueryData(['settings'], saved)
+         queryClient.invalidateQueries({ queryKey: ['meta'] })
+         // A listing costs a YouTube request: redo it only when its length changed.
+         if (previous?.max_videos_fetch !== saved.max_videos_fetch) {
+            queryClient.invalidateQueries({ queryKey: ['videos'] })
+         }
+      },
+   })
 }
 
 export function useRefreshModels() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => api<ClaudeModel[]>("/api/models/refresh", { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meta"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: () => api<ClaudeModel[]>('/api/models/refresh', { method: 'POST' }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meta'] }),
+   })
 }
 
 export function useChannels() {
-  return useQuery({
-    queryKey: ["channels"],
-    queryFn: () => api<Channel[]>("/api/channels"),
-  })
+   return useQuery({
+      queryKey: ['channels'],
+      queryFn: () => api<Channel[]>('/api/channels'),
+   })
 }
 
 export function useAddChannel() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (vars: { input: string; promptName: string; notifyEmails: string[] }) =>
-      api<Channel>("/api/channels", {
-        method: "POST",
-        body: JSON.stringify({
-          input: vars.input,
-          prompt_name: vars.promptName,
-          notify_emails: vars.notifyEmails,
-        }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (vars: { input: string, promptName: string, notifyEmails: string[] }) =>
+         api<Channel>('/api/channels', {
+            method: 'POST',
+            body: JSON.stringify({
+               input: vars.input,
+               prompt_name: vars.promptName,
+               notify_emails: vars.notifyEmails,
+            }),
+         }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['channels'] }),
+   })
 }
 
 export function useDeleteChannel() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (channelId: number) =>
-      api<void>(`/api/channels/${channelId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (channelId: number) =>
+         api<void>(`/api/channels/${channelId}`, { method: 'DELETE' }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['channels'] }),
+   })
 }
 
 export function useUpdateChannel() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (vars: {
-      channelId: number
-      promptName?: string
-      notifyEmails?: string[]
-    }) =>
-      api<Channel>(`/api/channels/${vars.channelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          ...(vars.promptName !== undefined && { prompt_name: vars.promptName }),
-          ...(vars.notifyEmails !== undefined && { notify_emails: vars.notifyEmails }),
-        }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channels"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (vars: {
+         channelId: number
+         promptName?: string
+         notifyEmails?: string[]
+      }) =>
+         api<Channel>(`/api/channels/${vars.channelId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+               ...(vars.promptName !== undefined && { prompt_name: vars.promptName }),
+               ...(vars.notifyEmails !== undefined && { notify_emails: vars.notifyEmails }),
+            }),
+         }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['channels'] }),
+   })
 }
 
 export function usePrompts() {
-  return useQuery({
-    queryKey: ["prompts"],
-    queryFn: () => api<Prompt[]>("/api/prompts"),
-  })
+   return useQuery({
+      queryKey: ['prompts'],
+      queryFn: () => api<Prompt[]>('/api/prompts'),
+   })
 }
 
 export function useAddPrompt() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (vars: {
-      name: string
-      text: string
-      estimatedOutputTokens: number
-      model: string
-      effort?: string
-      maxOutputTokens: number
-      entityKind?: string
-      stanceLabels?: string[]
-    }) =>
-      api<Prompt>("/api/prompts", {
-        method: "POST",
-        body: JSON.stringify({
-          name: vars.name,
-          text: vars.text,
-          estimated_output_tokens: vars.estimatedOutputTokens,
-          model: vars.model,
-          effort: vars.effort ?? null,
-          max_output_tokens: vars.maxOutputTokens,
-          entity_kind: vars.entityKind ?? null,
-          stance_labels: vars.stanceLabels ?? [],
-        }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (vars: {
+         name: string
+         text: string
+         estimatedOutputTokens: number
+         model: string
+         effort?: string
+         maxOutputTokens: number
+         entityKind?: string
+         stanceLabels?: string[]
+      }) =>
+         api<Prompt>('/api/prompts', {
+            method: 'POST',
+            body: JSON.stringify({
+               name: vars.name,
+               text: vars.text,
+               estimated_output_tokens: vars.estimatedOutputTokens,
+               model: vars.model,
+               effort: vars.effort ?? null,
+               max_output_tokens: vars.maxOutputTokens,
+               entity_kind: vars.entityKind ?? null,
+               stance_labels: vars.stanceLabels ?? [],
+            }),
+         }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['prompts'] }),
+   })
 }
 
 export function useUpdatePrompt() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (vars: {
-      promptId: number
-      name?: string
-      text?: string
-      estimatedOutputTokens?: number
-      model?: string
-      effort?: string
-      maxOutputTokens?: number
-      entityKind?: string
-      stanceLabels?: string[]
-    }) =>
-      api<Prompt>(`/api/prompts/${vars.promptId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          ...(vars.name !== undefined && { name: vars.name }),
-          ...(vars.text !== undefined && { text: vars.text }),
-          ...(vars.estimatedOutputTokens !== undefined && {
-            estimated_output_tokens: vars.estimatedOutputTokens,
-          }),
-          ...(vars.model !== undefined && { model: vars.model }),
-          ...(vars.effort !== undefined && { effort: vars.effort }),
-          ...(vars.maxOutputTokens !== undefined && {
-            max_output_tokens: vars.maxOutputTokens,
-          }),
-          ...(vars.entityKind !== undefined && { entity_kind: vars.entityKind }),
-          ...(vars.stanceLabels !== undefined && { stance_labels: vars.stanceLabels }),
-        }),
-      }),
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["prompts"] })
-      if (vars.name !== undefined) {
-        queryClient.invalidateQueries({ queryKey: ["channels"] })
-        queryClient.invalidateQueries({ queryKey: ["summaries"] })
-      }
-    },
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (vars: {
+         promptId: number
+         name?: string
+         text?: string
+         estimatedOutputTokens?: number
+         model?: string
+         effort?: string
+         maxOutputTokens?: number
+         entityKind?: string
+         stanceLabels?: string[]
+      }) =>
+         api<Prompt>(`/api/prompts/${vars.promptId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+               ...(vars.name !== undefined && { name: vars.name }),
+               ...(vars.text !== undefined && { text: vars.text }),
+               ...(vars.estimatedOutputTokens !== undefined && {
+                  estimated_output_tokens: vars.estimatedOutputTokens,
+               }),
+               ...(vars.model !== undefined && { model: vars.model }),
+               ...(vars.effort !== undefined && { effort: vars.effort }),
+               ...(vars.maxOutputTokens !== undefined && {
+                  max_output_tokens: vars.maxOutputTokens,
+               }),
+               ...(vars.entityKind !== undefined && { entity_kind: vars.entityKind }),
+               ...(vars.stanceLabels !== undefined && { stance_labels: vars.stanceLabels }),
+            }),
+         }),
+      onSuccess: (_data, vars) => {
+         queryClient.invalidateQueries({ queryKey: ['prompts'] })
+         if (vars.name !== undefined) {
+            queryClient.invalidateQueries({ queryKey: ['channels'] })
+            queryClient.invalidateQueries({ queryKey: ['summaries'] })
+         }
+      },
+   })
 }
 
 export function useDeletePrompt() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (promptId: number) =>
-      api<void>(`/api/prompts/${promptId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (promptId: number) =>
+         api<void>(`/api/prompts/${promptId}`, { method: 'DELETE' }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['prompts'] }),
+   })
 }
 
 export function useVideos(channelId: number) {
-  return useQuery({
-    queryKey: ["videos", channelId],
-    queryFn: () => api<VideoList>(`/api/channels/${channelId}/videos`),
-    // A listing takes yt-dlp a few seconds — don't refire on window focus.
-    staleTime: 5 * 60 * 1000,
-  })
+   return useQuery({
+      queryKey: ['videos', channelId],
+      queryFn: () => api<VideoList>(`/api/channels/${channelId}/videos`),
+      // A listing takes yt-dlp a few seconds — don't refire on window focus.
+      staleTime: 5 * 60 * 1000,
+   })
 }
 
 export function useCreateEstimate() {
-  return useMutation({
-    mutationFn: (body: EstimateRequest) =>
-      api<Estimate>("/api/estimates", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  })
+   return useMutation({
+      mutationFn: (body: EstimateRequest) =>
+         api<Estimate>('/api/estimates', {
+            method: 'POST',
+            body: JSON.stringify(body),
+         }),
+   })
 }
 
 export function useCreateJob() {
-  return useMutation({
-    mutationFn: (estimateId: string) =>
-      api<{ job_id: string }>("/api/jobs", {
-        method: "POST",
-        body: JSON.stringify({ estimate_id: estimateId }),
-      }),
-  })
+   return useMutation({
+      mutationFn: (estimateId: string) =>
+         api<{ job_id: string }>('/api/jobs', {
+            method: 'POST',
+            body: JSON.stringify({ estimate_id: estimateId }),
+         }),
+   })
 }
 
 export function useJob(jobId: string) {
-  return useQuery({
-    queryKey: ["job", jobId],
-    queryFn: () => api<Job>(`/api/jobs/${jobId}`),
-    refetchInterval: (query) =>
-      query.state.data?.status === "done" ? false : 1000,
-  })
+   return useQuery({
+      queryKey: ['job', jobId],
+      queryFn: () => api<Job>(`/api/jobs/${jobId}`),
+      refetchInterval: (query) =>
+         query.state.data?.status === 'done' ? false : 1000,
+   })
 }
 
 export function useSummaries(channelId?: number) {
-  return useQuery({
-    queryKey: ["summaries", channelId ?? "all"],
-    queryFn: () =>
-      api<Summary[]>(
-        channelId === undefined
-          ? "/api/summaries"
-          : `/api/summaries?channel_id=${channelId}`,
-      ),
-  })
+   return useQuery({
+      queryKey: ['summaries', channelId ?? 'all'],
+      queryFn: () =>
+         api<Summary[]>(
+            channelId === undefined
+               ? '/api/summaries'
+               : `/api/summaries?channel_id=${channelId}`,
+         ),
+   })
 }
 
 export function useDeleteSummary() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (videoId: string) =>
-      api<void>(`/api/summaries/${videoId}`, { method: "DELETE" }),
-    onSuccess: (_data, videoId) => {
-      queryClient.removeQueries({ queryKey: ["summary", videoId] })
-      queryClient.invalidateQueries({ queryKey: ["summaries"] })
-      // The video is unprocessed again, so the Process tab's badges are stale.
-      queryClient.invalidateQueries({ queryKey: ["videos"] })
-    },
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (videoId: string) =>
+         api<void>(`/api/summaries/${videoId}`, { method: 'DELETE' }),
+      onSuccess: (_data, videoId) => {
+         queryClient.removeQueries({ queryKey: ['summary', videoId] })
+         queryClient.invalidateQueries({ queryKey: ['summaries'] })
+         // The video is unprocessed again, so the Process tab's badges are stale.
+         queryClient.invalidateQueries({ queryKey: ['videos'] })
+      },
+   })
 }
 
 export function useSummaryDetail(videoId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["summary", videoId],
-    queryFn: () => api<SummaryDetail>(`/api/summaries/${videoId}`),
-    enabled,
-    staleTime: Infinity,
-  })
+   return useQuery({
+      queryKey: ['summary', videoId],
+      queryFn: () => api<SummaryDetail>(`/api/summaries/${videoId}`),
+      enabled,
+      staleTime: Infinity,
+   })
 }
 
 function query(params: Record<string, string | number | undefined>): string {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") search.set(key, String(value))
-  }
-  const rendered = search.toString()
-  return rendered ? `?${rendered}` : ""
+   const search = new URLSearchParams()
+   for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') {
+         search.set(key, String(value))
+      }
+   }
+   const rendered = search.toString()
+   return rendered ? `?${rendered}` : ''
 }
 
 export function useEntities(channelId: number | undefined, since?: string) {
-  return useQuery({
-    queryKey: ["entities", channelId ?? "all", since ?? "all"],
-    queryFn: () => api<Entity[]>(`/api/entities${query({ channel_id: channelId, since })}`),
-  })
+   return useQuery({
+      queryKey: ['entities', channelId ?? 'all', since ?? 'all'],
+      queryFn: () => api<Entity[]>(`/api/entities${query({ channel_id: channelId, since })}`),
+   })
 }
 
 export function useMentions(
-  channelId: number | undefined,
-  entity: string | undefined,
-  since?: string,
+   channelId: number | undefined,
+   entity: string | undefined,
+   since?: string,
 ) {
-  return useQuery({
-    queryKey: ["mentions", channelId ?? "all", entity ?? "all", since ?? "all"],
-    queryFn: () =>
-      api<Mention[]>(`/api/mentions${query({ channel_id: channelId, entity, since })}`),
-    enabled: entity !== undefined,
-  })
+   return useQuery({
+      queryKey: ['mentions', channelId ?? 'all', entity ?? 'all', since ?? 'all'],
+      queryFn: () =>
+         api<Mention[]>(`/api/mentions${query({ channel_id: channelId, entity, since })}`),
+      enabled: entity !== undefined,
+   })
 }
 
 export function useSearch(
-  text: string,
-  channelId: number | undefined,
-  since?: string,
+   text: string,
+   channelId: number | undefined,
+   since?: string,
 ) {
-  const trimmed = text.trim()
-  return useQuery({
-    queryKey: ["search", trimmed, channelId ?? "all", since ?? "all"],
-    queryFn: () =>
-      api<SearchHit[]>(`/api/search${query({ q: trimmed, channel_id: channelId, since })}`),
-    enabled: trimmed.length > 1,
-    placeholderData: (previous) => previous,
-  })
+   const trimmed = text.trim()
+   return useQuery({
+      queryKey: ['search', trimmed, channelId ?? 'all', since ?? 'all'],
+      queryFn: () =>
+         api<SearchHit[]>(`/api/search${query({ q: trimmed, channel_id: channelId, since })}`),
+      enabled: trimmed.length > 1,
+      placeholderData: (previous) => previous,
+   })
 }
 
 export function useQuestions(channelId: number | undefined) {
-  return useQuery({
-    queryKey: ["questions", channelId ?? "all"],
-    queryFn: () => api<Question[]>(`/api/questions${query({ channel_id: channelId })}`),
-  })
+   return useQuery({
+      queryKey: ['questions', channelId ?? 'all'],
+      queryFn: () => api<Question[]>(`/api/questions${query({ channel_id: channelId })}`),
+   })
 }
 
 export function useEstimateQuestion() {
-  return useMutation({
-    mutationFn: (vars: {
-      question: string
-      model: string
-      effort?: string
-      channelId: number | undefined
-      since?: string
-    }) =>
-      api<QuestionEstimate>("/api/questions/estimate", {
-        method: "POST",
-        body: JSON.stringify({
-          question: vars.question,
-          model: vars.model,
-          effort: vars.effort ?? null,
-          channel_id: vars.channelId ?? null,
-          since: vars.since ?? null,
-        }),
-      }),
-  })
+   return useMutation({
+      mutationFn: (vars: {
+         question: string
+         model: string
+         effort?: string
+         channelId: number | undefined
+         since?: string
+      }) =>
+         api<QuestionEstimate>('/api/questions/estimate', {
+            method: 'POST',
+            body: JSON.stringify({
+               question: vars.question,
+               model: vars.model,
+               effort: vars.effort ?? null,
+               channel_id: vars.channelId ?? null,
+               since: vars.since ?? null,
+            }),
+         }),
+   })
 }
 
 export function useAskQuestion() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (estimateId: string) =>
-      api<Question>("/api/questions", {
-        method: "POST",
-        body: JSON.stringify({ estimate_id: estimateId }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["questions"] })
-      queryClient.invalidateQueries({ queryKey: ["meta"] })
-    },
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (estimateId: string) =>
+         api<Question>('/api/questions', {
+            method: 'POST',
+            body: JSON.stringify({ estimate_id: estimateId }),
+         }),
+      onSuccess: () => {
+         queryClient.invalidateQueries({ queryKey: ['questions'] })
+         queryClient.invalidateQueries({ queryKey: ['meta'] })
+      },
+   })
 }
 
 export function useDeleteQuestion() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (questionId: number) =>
-      api<void>(`/api/questions/${questionId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["questions"] }),
-  })
+   const queryClient = useQueryClient()
+   return useMutation({
+      mutationFn: (questionId: number) =>
+         api<void>(`/api/questions/${questionId}`, { method: 'DELETE' }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['questions'] }),
+   })
 }
