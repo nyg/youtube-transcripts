@@ -219,8 +219,8 @@ importers:
         version: 1.4.0
     devDependencies:
       '@nyg/eslint-config':
-        specifier: github:nyg/eslint-config#v1.0.0
-        version: https://codeload.github.com/nyg/eslint-config/tar.gz/e7635343aaff5ea33ff278d3e72ffa2ff51de6fb(eslint@10.14.0(jiti@2.7.0))
+        specifier: github:nyg/eslint-config#v1.0.1
+        version: https://codeload.github.com/nyg/eslint-config/tar.gz/bf2a8871df6105396d3f5aa184baa98dd3e01245(eslint@10.14.0(jiti@2.7.0))
       '@tailwindcss/typography':
         specifier: 0.5.20
         version: 0.5.20(tailwindcss@4.3.3)
@@ -515,9 +515,9 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@nyg/eslint-config@https://codeload.github.com/nyg/eslint-config/tar.gz/e7635343aaff5ea33ff278d3e72ffa2ff51de6fb':
-    resolution: {gitHosted: true, integrity: sha512-MYAlj7lh+oQk7tqy3bzrYdgj6FHz89YGb4WPUrDVuVGeirLYi/TRJInuBs64UBVa7tZYicIKEmlT+Im7hxnYrA==, tarball: https://codeload.github.com/nyg/eslint-config/tar.gz/e7635343aaff5ea33ff278d3e72ffa2ff51de6fb}
-    version: 1.0.0
+  '@nyg/eslint-config@https://codeload.github.com/nyg/eslint-config/tar.gz/bf2a8871df6105396d3f5aa184baa98dd3e01245':
+    resolution: {gitHosted: true, integrity: sha512-b2hs1g4R18ZL4oERLl5hxf5mTt8jPKkre6lNjRlTiMBv1RkFd0I0cRR2JL2+yTG9SjCOQc5I/lXqaQQ9pwKQqg==, tarball: https://codeload.github.com/nyg/eslint-config/tar.gz/bf2a8871df6105396d3f5aa184baa98dd3e01245}
+    version: 1.0.1
     peerDependencies:
       eslint: ^10.0.0
       eslint-config-next: '>=16.0.0'
@@ -3617,7 +3617,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
 
-  '@nyg/eslint-config@https://codeload.github.com/nyg/eslint-config/tar.gz/e7635343aaff5ea33ff278d3e72ffa2ff51de6fb(eslint@10.14.0(jiti@2.7.0))':
+  '@nyg/eslint-config@https://codeload.github.com/nyg/eslint-config/tar.gz/bf2a8871df6105396d3f5aa184baa98dd3e01245(eslint@10.14.0(jiti@2.7.0))':
     dependencies:
       '@eslint/js': 10.0.1(eslint@10.14.0(jiti@2.7.0))
       '@stylistic/eslint-plugin': 5.10.0(eslint@10.14.0(jiti@2.7.0))
